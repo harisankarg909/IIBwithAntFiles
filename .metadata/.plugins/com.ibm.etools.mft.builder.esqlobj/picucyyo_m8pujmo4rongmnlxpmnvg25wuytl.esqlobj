@@ -1,0 +1,17 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN
+		DECLARE PrcStage CHAR CcnGetNamedCharValue(Environment, 'ProcessingStage');
+		
+		IF(PrcStage = 'CTM') THEN
+			CALL XferAdd_PctmOdsMtrfWrsp0200Rsp_PrcPscRs(Environment, LocalEnvironment);			
+		ELSEIF(PrcStage = 'SYSTEMATICS') THEN
+			CALL XferAdd_NbnzSiImtrvta1Rsp_PrcPscRs(Environment, LocalEnvironment);
+		ELSEIF(PrcStage = 'MANTEC')THEN
+			CALL XferAdd_MantecRsp_PrcPscRs(Environment, LocalEnvironment);
+		ELSEIF(PrcStage = 'CACHE') THEN
+			CALL XferAdd_CacheRsp_PrcPscRs(Environment, LocalEnvironment);		
+		END IF;
+		
+		RETURN TRUE;
+	END;
+

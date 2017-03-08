@@ -1,0 +1,5 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN	
+		CALL XferAdd_Mdz0101Req_AddPscRq(Environment,UDP_RsQueueName_Mdz);
+	    RETURN TRUE;
+	END;

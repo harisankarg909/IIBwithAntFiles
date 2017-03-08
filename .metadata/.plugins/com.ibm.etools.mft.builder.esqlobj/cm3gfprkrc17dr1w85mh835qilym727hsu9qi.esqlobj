@@ -1,0 +1,11 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN	
+		CALL XferAdd_FinetReq_AddPscRq(Environment,UDP_RsQueueName_Finet,LocalEnvironment);
+		DECLARE PrcStage CHAR CcnGetNamedCharValue(Environment, 'ProcessingStage');
+		IF(PrcStage = 'ValidationError') THEN 
+		  PROPAGATE TO LABEL 'CIMReply';
+		  RETURN FALSE;
+	    ELSE 
+			RETURN TRUE;
+		 END IF;
+	END;

@@ -1,0 +1,78 @@
+CREATE PROCEDURE XferAdd_PctmOdsMtrfWrsp0200Rsp_PrcPscRs(IN Environment REFERENCE, IN LocalEnvironment REFERENCE)
+BEGIN
+	
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- Create the response message
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+	---------------------------------------------------------------------------
+	DECLARE ClientRqRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, ClientRqRef);	
+	DECLARE Rq REFERENCE TO ClientRqRef;
+	
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRsRef(Environment, ClientRsRef);
+	DECLARE Rs REFERENCE TO ClientRsRef;
+	
+	--------------------------------------------------------------------------
+	-- Get a ref to provider response
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetPscRsRefFirst(Environment, PscRsRef);
+	
+	---------------------------------------------------------------------------
+    -- Get a reference to the CTM response
+    ---------------------------------------------------------------------------
+   	CALL CcnGetPscRsRefByPscUUID(Environment,PscRsRef,CcnGetNamedCharValue(Environment,'CcnPctmOdsUuid'));
+   	
+   	-- Check for provider service call errors like timeouts or parser exceptions
+	IF(CcnGetPscRsStatusCode(PscRsRef) <> '0') THEN
+		CALL CcnSetClientRsStatusFromPscRsStatus(Environment, PscRsRef);
+ 		CREATE FIRSTCHILD OF ClientRsRef NAME 'RqUID' VALUE ClientRqRef.RqUID;
+		SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';
+		RETURN;
+	END IF;
+	
+	IF (FIELDNAME(PscRsRef) = 'MultiFundsTransferWRspResponse2') THEN
+
+		IF (PscRsRef.StandardOutputHeader.ServiceResultCode NOT IN (0, 507, 906)) THEN
+			------------------------------------------------
+			--	Process Status Block
+			------------------------------------------------
+			CREATE FIRSTCHILD OF ClientRsRef NAME 'Status';
+		  	DECLARE StatusRef REFERENCE TO ClientRsRef.Status;
+		  	-- Defect #3317 : Included the Procedure call 'CcnSetClientRsStatusFromProvider'
+		  	CALL CcnSetClientRsStatusFromProvider(Environment, 'CTM', CAST(PscRsRef.StandardOutputHeader.ServiceResultCode AS CHAR), CAST(PscRsRef.StandardOutputHeader.ConditionCode AS CHAR), PscRsRef.StandardOutputHeader.ErrorMessage);
+		  	CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+		  	
+		  	SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';			
+			RETURN;	
+		  	
+		ELSE	
+			--------------------------------------------------------------
+			-- Construct Response Message
+			--------------------------------------------------------------
+			CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+			CREATE FIELD ClientRsRef.XferRec.XferId VALUE ClientRqRef.PmtRefId;
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctId VALUE ClientRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;
+			
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent VALUE ClientRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent;
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.Country VALUE ClientRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.Country;
+			
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[1].BalType VALUE 'Current';
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[1].CurAmt.Amt VALUE PscRsRef.CreditAccRunningBookBal;
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[2].BalType VALUE 'Avail';
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[2].CurAmt.Amt VALUE PscRsRef.CreditAccAvailBal;
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[3].BalType VALUE 'CreditLimit';
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[3].CurAmt.Amt VALUE PscRsRef.CreditAccAvailLimit;		
+			
+			SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';			
+			RETURN;			
+			
+		END IF;		
+	END IF;   	
+END;

@@ -1,0 +1,156 @@
+CREATE DATABASE MODULE XferAdd_GenFinacleRs
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+BEGIN
+
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- Create the response message
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+    -- Here Client response message will sent as Provider message to Client as this is
+    -- a Datagram service
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, PscRsRef);	
+	
+	---------------------------------------------------------------------------
+    --  add the client response message to help in ErrorToStatusCode function
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	SET Environment.Client.MsgDomain = 'XML';
+	CALL CcnAddClientRs(Environment, ClientRsRef);	
+	
+	-----------------------------------------------------------------------
+	-- NameSpace Declaration 
+	-----------------------------------------------------------------------
+	DECLARE NS_eoci   NAMESPACE 'http://www.ejb.ons.ci.infosys.com/executeFinacleScript'; --P1
+    DECLARE NS_ccic   NAMESPACE 'http://www.common.ci.infosys.com'; --P2
+    
+	DECLARE HdrRef REFERENCE TO PscRsRef.NS_eoci:HEADER.NS_eoci:RESPONSEHEADER;
+    DECLARE CustDataRef REFERENCE TO PscRsRef.NS_eoci:BODY.NS_eoci:executeFinacleScriptRESPONSE.NS_eoci:EXECUTEFINACLESCRIPT_CUSTOMDATA;
+    DECLARE TranInqRef REFERENCE TO  CustDataRef.NS_eoci:TRANINQ;
+    DECLARE ErrorDetailRef 	REFERENCE TO PscRsRef.NS_eoci:BODY.NS_eoci:ERROR.NS_ccic:FIBUSINESSEXCEPTION.NS_ccic:ERRORDETAIL;
+	
+	
+	DECLARE PscRef REFERENCE TO Environment;	
+	DECLARE PscPrimaryKey CHAR HdrRef.NS_ccic:REQUESTMESSAGEKEY.NS_ccic:REQUESTUUID;	
+	
+	CALL CcnAddProviderServiceCall(Environment,PscRef,'UPR','XML','XferAddRs',PscPrimaryKey,'');
+	
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgType(PscRef, 'XferAddRs');
+    CALL CcnSetPscRqMsgFormat(PscRef, 'XML');
+    CALL CcnSetPscRsMsgType(PscRef, 'XferAddRs');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'XML');
+	
+	---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscClientRef REFERENCE TO Environment;
+	CALL CcnGetPscRqRef(PscRef, PscClientRef);
+	
+	-- Set the ClientApp name and Client App env for test Endpoint mapping 
+		SET Environment.ContextInfo.Message.MsgContext.ClientAppName = 'FINACLE';
+	
+	-- Determine if clientQualifier is exists in FINACLE reponse message. 
+	-- else only map the RqUID from FINACLE response message from clientQulaifier field
+	-- Format of clientQlauifier field will be "RqUID:ClientQualifier" where ':' is the delimiter
+	
+	DECLARE RqUid, ClientQualifier CHARACTER '';
+	DECLARE Pos INTEGER 0;
+	SET Pos = POSITION(':' IN CustDataRef.NS_eoci:TRANPOST.NS_eoci:ClientQualifier);
+	
+	IF Pos > 0 THEN
+		SET RqUid= SUBSTRING(TRIM(CustDataRef.NS_eoci:TRANPOST.NS_eoci:ClientQualifier) FROM 1 FOR (Pos-1));
+    	SET ClientQualifier = SUBSTRING(CustDataRef.NS_eoci:TRANPOST.NS_eoci:ClientQualifier FROM (Pos+1) FOR (LENGTH(CustDataRef.NS_eoci:TRANPOST.NS_eoci:ClientQualifier)-Pos));
+		SET Environment.ContextInfo.Message.MsgContext.ClientQualifier = COALESCE(ClientQualifier, '');
+	ELSE 
+		SET RqUid= CustDataRef.NS_eoci:TRANPOST.NS_eoci:ClientQualifier ;
+	END IF;	
+		
+	
+	-- Retrieve the UPR response queue from CcnSetEndpoint table
+	DECLARE UPR_RQueueName CHARACTER ' ';
+	
+	-- Retrieve the Banks Country name based on BankId received from FINACLE response. i.e 3= TW , 5 = HK
+	DECLARE OrgCountry CHARACTER '';
+	SET OrgCountry = COALESCE(CcnGetReferenceValue(Environment,'Finacle_BankCountry',HdrRef.NS_ccic:RESPONSEMESSAGEINFO.NS_ccic:BANKID,FALSE ), '') ;
+	
+	
+	--SET UPR_RQueueName = 'queue://PCPR.FUNDS.TRANSFER.ADD.RSP.01';
+     SET UPR_RQueueName =  CcnGetServiceEndpointOptionalId(Environment,'FINACLE',OrgCountry||'.com.anz',COALESCE(HdrRef.NS_ccic:REQUESTMESSAGEKEY.NS_ccic:CHANNELID, ' '));
+    CALL CcnSetPscEndpoints(PscRef, UPR_RQueueName, '');
+    
+    -----------------------------------------------------------------------------
+	-- Override REQUEST RESPONSE behavior to DATAGRAM
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscMep(PscRef, 'ONE_WAY');	
+	
+	/* Make the output message persistant */
+	CALL CcnSetPscRqPersistent(PscRef);	
+	
+
+	-----------------------------------------------------------------------
+	-- Contruct Response message
+	-----------------------------------------------------------------------
+    -- Check if the host transaction status has value SUCCESS or DUP:SUCCESS to construct response message
+    IF(UPPER(HdrRef.NS_ccic:HOSTTRANSACTION.NS_ccic:STATUS) IN ('SUCCESS','DUP:SUCCESS')) THEN    
+    	-- Check TranInq status has value 'FAILURE' to construct error response
+	    	IF (UPPER(TranInqRef.NS_eoci:TRANPOST.NS_eoci:STATUS_2) IN ('FAILURE', 'WARNING')) THEN
+	    		-- Get the IFX status from the Error to Status map table
+	    		CALL CcnSetClientRsStatusFromProvider(Environment,'FINACLE_UPR',CAST(TranInqRef.NS_eoci:TRANPOST.NS_eoci:ERRORCODE_2 AS CHARACTER),'',TranInqRef.NS_eoci:TRANPOST.NS_eoci:ERRORDESC_2);
+	    		SET PscClientRef.Status.StatusCode = ClientRsRef.Status.StatusCode;
+	    		-- WR changes 01-08-2012 -Error code mapping change -FTAS04146.
+	    		IF TranInqRef.NS_eoci:TRANPOST.NS_eoci:ERRORDESC_2 LIKE '%INSUFFICIENT AVAIL BAL%' THEN
+	    			SET PscClientRef.Status.StatusCode = '2940' ;
+	    		END IF;
+	    			    		
+	    		SET PscClientRef.Status.ServerStatusCode = TranInqRef.NS_eoci:TRANPOST.NS_eoci:ERRORCODE_2;	
+	    		SET PscClientRef.Status.StatusDesc = TranInqRef.NS_eoci:TRANPOST.NS_eoci:ERRORDESC_2;    		
+	    		SET PscClientRef.RqUID = RqUid;
+	    		SET PscClientRef.XferRec.XferId = HdrRef.NS_ccic:REQUESTMESSAGEKEY.NS_ccic:REQUESTUUID;
+	    		-- Check if Status_2 has 'Warning' and has the EXECUTEFINACLESCRIPT_CUSTOMDATA reference
+	    		IF (UPPER(TranInqRef.NS_eoci:TRANPOST.NS_eoci:STATUS_2) IN ('WARNING')) THEN
+	    			SET PscClientRef.Status.StatusCode = '0' ;
+	    			WHILE LASTMOVE(CustDataRef) DO
+	    				SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctId = CustDataRef.NS_eoci:TRANPOST.NS_eoci:DEBITACCNUM;
+	    				SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent = CustDataRef.NS_eoci:TRANPOST.NS_eoci:BRANCHID;
+	    				SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.BalType  = 'Avail';
+			    		SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.CurAmt.Amt = CustDataRef.NS_eoci:TRANPOST.NS_eoci:BALANCE;
+			    		SET PscClientRef.XferRec.XferInfo.CurAmt.CurCode.Value = CustDataRef.NS_eoci:TRANPOST.NS_eoci:CCYCODE;
+			    		SET PscClientRef.CSPRefId = CustDataRef.NS_eoci:TRANPOST.NS_eoci:TranId;
+			    		SET PscClientRef.LienId = CustDataRef.NS_eoci:TRANPOST.NS_eoci:LienId;
+			    		
+			    		MOVE CustDataRef NEXTSIBLING REPEAT TYPE NAME;
+	    			END WHILE;
+	    		END IF;
+	    	ELSE
+	    		-- Construct success response message
+	    		SET PscClientRef.RqUID = RqUid;
+	    		SET PscClientRef.XferRec.XferId = HdrRef.NS_ccic:REQUESTMESSAGEKEY.NS_ccic:REQUESTUUID;
+	    		SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctId = CustDataRef.NS_eoci:TRANPOST.NS_eoci:DEBITACCNUM;
+	    		SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent = CustDataRef.NS_eoci:TRANPOST.NS_eoci:BRANCHID;
+	    		SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.BalType  = 'Avail';
+	    		SET PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.CurAmt.Amt = CustDataRef.NS_eoci:TRANPOST.NS_eoci:BALANCE;
+	    		SET PscClientRef.XferRec.XferInfo.CurAmt.CurCode.Value = CustDataRef.NS_eoci:TRANPOST.NS_eoci:CCYCODE;
+	    		SET PscClientRef.CSPRefId = CustDataRef.NS_eoci:TRANPOST.NS_eoci:TranId;
+	    		SET PscClientRef.LienId = CustDataRef.NS_eoci:TRANPOST.NS_eoci:LienId;
+	    		
+	    	END IF;
+	ELSE
+		-- Construct Error response message
+		CREATE FIRSTCHILD OF PscClientRef NAME 'Status';
+
+		SET PscClientRef.Status.StatusCode = '100';
+		SET PscClientRef.Status.ServerStatusCode = TRIM(ErrorDetailRef.NS_ccic:ERRORCODE);
+		SET PscClientRef.Status.Severity = 'Error';
+		SET PscClientRef.Status.StatusDesc = TRIM(ErrorDetailRef.NS_ccic:ERRORDESC); 		
+		SET PscClientRef.RqUID = RqUid;
+    	SET PscClientRef.XferRec.XferId = HdrRef.NS_ccic:REQUESTMESSAGEKEY.NS_ccic:REQUESTUUID;
+    END IF;
+
+  RETURN TRUE;
+ END;		
+END MODULE;

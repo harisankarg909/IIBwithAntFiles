@@ -1,0 +1,73 @@
+CREATE FUNCTION CreateRequestType1(XferAddRqRef REFERENCE, PscRqRef REFERENCE)
+BEGIN
+	
+	CREATE LASTCHILD OF PscRqRef Name 'TasActEntInType1';	
+    DECLARE TasActEnqRef REFERENCE TO PscRqRef.TasActEntInType1;
+    DECLARE XferFromInfoRef REFERENCE TO XferAddRqRef.XferFromInfo;
+    DECLARE XferToInfoRef REFERENCE TO XferAddRqRef.XferToInfo;
+    
+    IF( PscRqRef.HeaderIn.HeaderInTranCode = 021031 ) THEN 
+       SET TasActEnqRef.TasAetFromAcct = COALESCE(XferFromInfoRef.AcctRef.AcctRec.AcctId,'');
+	ELSEIF ( PscRqRef.HeaderIn.HeaderInTranCode = 021058 ) THEN
+	   SET TasActEnqRef.TasAetFromAcct = COALESCE(XferToInfoRef.AcctRef.AcctRec.AcctId,'');
+    END IF;
+	    
+    SET TasActEnqRef.TasAetBal ='0';
+    SET TasActEnqRef.TasAetDebtTrfAmount = COALESCE(XferFromInfoRef.CurAmt.Amt,'0') ;
+    SET TasActEnqRef.Sign1 = '+';
+    SET TasActEnqRef.Filler1 = '0';
+    
+
+    SET TasActEnqRef.TasAetTrfDate =  COALESCE(CAST(COALESCE(SUBSTRING(XferFromInfoRef.PrcDt FROM 9 FOR 2),00) AS CHARACTER) 
+    									|| CAST(COALESCE(SUBSTRING(XferFromInfoRef.PrcDt FROM 6 FOR 2),00) AS CHARACTER) 
+    									|| CAST(COALESCE(SUBSTRING(XferFromInfoRef.PrcDt FROM 1 FOR 4),0000)AS CHARACTER),0);  
+    SET TasActEnqRef.TasAetPromoNo = '0';
+    SET TasActEnqRef.Filler2 = '';
+    
+    IF( PscRqRef.HeaderIn.HeaderInTranCode = 021031 ) THEN 
+      SET TasActEnqRef.TasAetToAcct = COALESCE(XferToInfoRef.AcctRef.AcctRec.AcctId,'');
+	ELSEIF ( PscRqRef.HeaderIn.HeaderInTranCode = 021058 ) THEN
+	  SET TasActEnqRef.TasAetToAcct = COALESCE(XferFromInfoRef.AcctRef.AcctRec.AcctId,'');
+    END IF;
+    
+    
+    SET TasActEnqRef.Filler3 ='';
+    SET TasActEnqRef.TasAetAcctCurrCD = COALESCE(XferToInfoRef.AcctRef.AcctCurCode,'');
+    
+    SET TasActEnqRef.TasAetCurrAmt = COALESCE(XferToInfoRef.CurAmt.Amt,'0');
+    SET TasActEnqRef.Sign2 = '+';
+    SET TasActEnqRef.TasAetAmtCurrCD = COALESCE(XferFromInfoRef.AcctRef.AcctCurCode,'');
+    SET TasActEnqRef.TasAetBaseCurrAmt = '0' ;
+    SET TasActEnqRef.TasAetCommission = '0';
+    SET TasActEnqRef.TasAetChange = '0';
+    SET TasActEnqRef.TasAetRateType = 0;
+    SET TasActEnqRef.TasAetCurrVersion = ''; 
+    SET TasActEnqRef.TasAetCorrJRNLNo = 0;
+    SET TasActEnqRef.TasAetDebAccNarr1 = COALESCE(XferFromInfoRef.Memo[1],'');
+    SET TasActEnqRef.TasAetDebAccNarr2 = COALESCE(XferFromInfoRef.Memo[2],'');
+    SET TasActEnqRef.TasAetDebAccNarr3 = COALESCE(XferFromInfoRef.Memo[3],'');
+    SET TasActEnqRef.TasAetDebAccNarr4 = COALESCE(XferFromInfoRef.Memo[4],'');
+    SET TasActEnqRef.TasAetCreAccNarr1 = COALESCE(XferToInfoRef.Memo[1],'');
+    SET TasActEnqRef.TasAetCreAccNarr2 = COALESCE(XferToInfoRef.Memo[2],'');
+    SET TasActEnqRef.Filler4 =' ';
+    SET TasActEnqRef.TasAetDebAccCtryCD = COALESCE(XferFromInfoRef.AcctRef.AcctRec.AcctInfo.FIData.Country,'');
+    SET TasActEnqRef.TasAetDebAmtCcyCD = COALESCE(XferFromInfoRef.CurAmt.CurCode.Value,'') ;
+    SET TasActEnqRef.TasAetDebTranCode = COALESCE(XferFromInfoRef.TrnCode,'');
+ 
+ 	IF XferAddRqRef.OverrideFunds = '1' THEN 
+	    SET TasActEnqRef.TasAetForceDRFLG   = 'Y';
+    ELSE  
+    	SET TasActEnqRef.TasAetForceDRFLG   = 'N';
+	END IF;	
+    SET TasActEnqRef.TasAetSrcSysPayRefid = COALESCE(XferAddRqRef.RefNum,'') ;
+    SET TasActEnqRef.Filler5 = ' ';
+    SET TasActEnqRef.TasAetCreAccNarr3 = COALESCE(XferToInfoRef.Memo[3],'');
+    SET TasActEnqRef.TasAetCreAccNarr4 = COALESCE(XferToInfoRef.Memo[4],'');
+    SET TasActEnqRef.TasAetUniqReqIden = COALESCE(XferAddRqRef.PmtRefId,'');
+    SET TasActEnqRef.TasAetCreAccCtryCD = COALESCE(XferToInfoRef.AcctRef.AcctRec.AcctInfo.FIData.Country,'');
+    SET TasActEnqRef.TasAetCreAmtCcyCD =  COALESCE(XferToInfoRef.CurAmt.CurCode.Value,'') ;
+    SET TasActEnqRef.Filler6 = ' ';
+    SET TasActEnqRef.TasAetCreTranCode =COALESCE(XferToInfoRef.TrnCode,'');
+    SET TasActEnqRef.Filler7 =' ';
+
+END;

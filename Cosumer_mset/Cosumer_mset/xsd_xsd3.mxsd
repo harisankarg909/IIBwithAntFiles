@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?><!--File Webservice_mset\Response.xsd, application ProviderWebService--><xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <xsd:complexType name="Response">
+    <xsd:sequence>
+      <xsd:element name="Message" type="xsd:string"/>
+      <xsd:element name="ErrorCode" type="xsd:string"/>
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:element name="Response" type="Response">
+          <xsd:annotation>
+      <xsd:appinfo source="WMQI_APPINFO">
+        <MRMessage messageDefinition="/0/Response;XSDElementDeclaration$MRObject" schemaObject="/0/Response;XSDElementDeclaration"/>
+      </xsd:appinfo>
+    </xsd:annotation>
+    </xsd:element>
+</xsd:schema>

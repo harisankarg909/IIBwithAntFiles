@@ -1,0 +1,64 @@
+ESQL Source Code: consolidated.cmf
+User Trace Log  : usertrace.txt
+Execution time  : 2016-12-19 13:42:28
+
+IAM2 version    : 1.0.5
+-------------------------
+Overview of Code Coverage
+-------------------------
+Total Functions & Procedures: 3
+
+'.consumermsgFlow_Compute.CopyEntireMessage'
+Lines           : 3 (0 comment and 0 blank lines)
+Executed Lines  : 0 of 3 executable lines
+Percent comment :   0.0%
+Code coverage   :   0.0%
+
+'.consumermsgFlow_Compute.CopyMessageHeaders'
+Lines           : 9 (0 comment and 0 blank lines)
+Executed Lines  : 0 of 9 executable lines
+Percent comment :   0.0%
+Code coverage   :   0.0%
+
+'.consumermsgFlow_Compute.Main'
+Lines           : 6 (1 comment and 0 blank lines)
+Executed Lines  : 0 of 5 executable lines
+Percent comment :  16.7%
+Code coverage   :   0.0%
+
+Total Executed Lines : 0 of 17 executable lines
+Total Code Coverage  : 0.0%
+
+------------------------
+Details of Code Coverage
+------------------------
+[x] line was executed
+[ ] line was not executed
+    line is comment or blank line
+
+ESQL Function / Procedure 1: '.consumermsgFlow_Compute.Main'
+
+[ ] 1: 	CREATE FUNCTION Main() RETURNS BOOLEAN
+[ ] 2: 	BEGIN
+    3: 		-- CALL CopyMessageHeaders();
+[ ] 4: 		CALL CopyEntireMessage();
+[ ] 5: 		RETURN TRUE;
+[ ] 6: 	END;
+
+ESQL Function / Procedure 2: '.consumermsgFlow_Compute.CopyMessageHeaders'
+
+[ ] 1: 	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+[ ] 2: 		DECLARE I INTEGER 1;
+[ ] 3: 		DECLARE J INTEGER;
+[ ] 4: 		SET J = CARDINALITY(InputRoot.*[]);
+[ ] 5: 		WHILE I &lt; J DO
+[ ] 6: 			SET OutputRoot.*[I] = InputRoot.*[I];
+[ ] 7: 			SET I = I + 1;
+[ ] 8: 		END WHILE;
+[ ] 9: 	END;
+
+ESQL Function / Procedure 3: '.consumermsgFlow_Compute.CopyEntireMessage'
+
+[ ] 1: 	CREATE PROCEDURE CopyEntireMessage() BEGIN
+[ ] 2: 		SET OutputRoot.XMLNSC.NS:Request = InputRoot.XMLNSC.NS:Request;
+[ ] 3: 	END;

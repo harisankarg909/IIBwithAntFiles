@@ -1,0 +1,32 @@
+package com.aviva.nui.codequality.test;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Iterator;
+
+import com.aviva.nui.codequality.core.*;
+
+public class TestWrapper {
+	
+	
+	public static void main(String args[]){
+		//EngineDesign engine = new PlainEngine();
+		//EngineDesign engine = new MessageFlowEngine();
+		EngineDesign engine = new FolderEngine();
+		ArrayList resultSet;
+		File fl = new File("D:\\StaticcodeAnalyserFileunderTest");
+		try{
+			resultSet = engine.output(fl);
+			if(resultSet.isEmpty())
+				System.out.println("Empty result Set !! Perfect Code");
+			Iterator it = resultSet.iterator();
+			while(it.hasNext()){
+				System.out.println(it.next());
+			}
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+}
+
+

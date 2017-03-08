@@ -1,0 +1,124 @@
+CREATE DATABASE MODULE XferAdd_GenCacheRq
+	DECLARE UDP_RsQueueNameAsync EXTERNAL CHAR;
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		
+
+	  -- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    DECLARE XferAddRqRef REFERENCE TO Environment;
+    CALL CcnGetClientRqRef(Environment, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    DECLARE CacheRqQueueName CHAR;
+    
+    ---------------------------------------------------------------------------
+	  -- Get  reference to the client response message
+	---------------------------------------------------------------------------  
+    DECLARE XferAddRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRsRef(Environment, XferAddRsRef);
+    
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO Environment;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	
+	CALL CcnAddProviderServiceCall(Environment,PscRef,'CACHE','FIXED','CacheLmGenPmtReq0101',PscPrimaryKey,'');
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(Environment, 'CcnCacheUuid', CcnGetPscUUID(PscRef));
+		
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-- Message set -- CacheLmGenPmtReq0101_MS
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgSet(PscRef, 'GFE7L64002001');
+	CALL CcnSetPscRsMsgSet(PscRef, 'GFE7L64002001');	
+	CALL CcnSetPscRqMsgType(PscRef, 'CacheLmGenPmtReq');
+	CALL CcnSetPscRqMsgFormat(PscRef, 'CWF');
+	CALL CcnSetPscRsMsgType(PscRef, 'CacheLmGenPmtRes');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'CWF');
+	
+	---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO Environment;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+	
+	-- Retrieve the CACHE Provider queue from CcnSetEndpoint table
+
+	SET CacheRqQueueName =  CcnGetServiceEndpointOptionalId(Environment,XferAddRqRef.MsgRqHdr.SignonRq.ClientApp.Name,XferAddRqRef.MsgRqHdr.SignonRq.ClientApp.Org,'CACHE');
+
+	
+	CALL CcnSetPscEndpoints(PscRef, CacheRqQueueName, UDP_RsQueueNameAsync);
+	
+	/* Make the output message persistant */
+ 	CALL CcnSetPscRqPersistent(PscRef);		
+	
+	CREATE LASTCHILD OF PscRqRef NAME 'StandardInputHeader';
+	DECLARE StdInHdrRef REFERENCE TO PscRqRef.StandardInputHeader;
+	
+	SET StdInHdrRef.ServiceRequest1 = 'CACHE-LM-GEN-PMT-REQ';
+	SET StdInHdrRef.ServiceRequest2 = 'CACHE-LM-GEN-PMT-REQ';
+    SET StdInHdrRef.MessageVersion = '00';
+	SET StdInHdrRef.PostingDate =0;	
+	SET StdInHdrRef.PostingTime =0;
+	SET StdInHdrRef.TransactionDate =0;
+	SET StdInHdrRef.ProcessingDate = CAST(CAST(XferAddRqRef.XferFromInfo.PrcDt AS DATE) AS TIMESTAMP);
+	SET StdInHdrRef.IntiatingCompany = '00002';
+	SET StdInHdrRef.OperatorId = COALESCE(XferAddRqRef.MsgRqHdr.NetworkTrnInfo.Name,'');
+	SET StdInHdrRef.OperatorBranch = COALESCE(XferAddRqRef.MsgRqHdr.NetworkTrnInfo.BankId,'0');
+	SET StdInHdrRef.WorkstationId = COALESCE(XferAddRqRef.MsgRqHdr.NetworkTrnInfo.TerminalId,'');
+	SET StdInHdrRef.OriginatingApplication = COALESCE(XferAddRqRef.MsgRqHdr.SignonRq.ClientApp.Name, 'LQM');
+	SET StdInHdrRef.ProcessingApplication = 'CAC';
+	
+	SET PscRqRef.LMReferenceID = COALESCE(XferAddRqRef.RefNum,' ');
+	SET PscRqRef.PmtType = 'End of Day sweep';
+	SET PscRqRef.DebitAcctNumber = COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId,'');
+	SET PscRqRef.DebitAcctCurcode = COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctCurCode,'');
+	SET PscRqRef.DebitTrnBranch = COALESCE(XferAddRqRef.XferFromInfo.AcctRef.BranchIdent,'');
+	SET PscRqRef.DebitTrnAmt = COALESCE(XferAddRqRef.XferFromInfo.CurAmt.Amt,'0');
+	SET PscRqRef.DebitAmtFloat0 = 0;
+	SET PscRqRef.DebitAmtFloat1 = 0;
+	SET PscRqRef.DebitAmtFloat2 = 0;
+	SET PscRqRef.DebitAmtFloat3 = 0;
+	SET PscRqRef.DebitAmtFloat4 = 0;
+	SET PscRqRef.DebitAmtFloat5 = 0;
+	SET PscRqRef.DebitAmtFloat6 = 0;
+	SET PscRqRef.DebitAmtFloat7 = 0;
+	SET PscRqRef.DebitTrnCurCode = COALESCE(XferAddRqRef.XferFromInfo.CurAmt.CurCode.Value,'');
+	SET PscRqRef.DebitTrnAuxDom  = COALESCE(XferAddRqRef.XferFromInfo.AuxDom,'0');
+	SET PscRqRef.DebitTrnExAuxDom = COALESCE(XferAddRqRef.XferFromInfo.ExAuxDom,'');
+	SET PscRqRef.DebitTrnNarrative =COALESCE(XferAddRqRef.XferFromInfo.Memo[1],'') || COALESCE(XferAddRqRef.XferFromInfo.Memo[2],'') || COALESCE(XferAddRqRef.XferFromInfo.Memo[3],'') || COALESCE(XferAddRqRef.XferFromInfo.Memo[4],'');
+	SET PscRqRef.CreditAcctNumber = COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctId,'');
+	SET PscRqRef.CreditAcctCurcode = COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctCurCode,'');
+	SET PscRqRef.CreditTrnBranch = COALESCE(XferAddRqRef.XferToInfo.AcctRef.BranchIdent ,'');
+	SET PscRqRef.CreditTrnAmt = COALESCE(XferAddRqRef.XferToInfo.CurAmt.Amt,0) ;
+	SET PscRqRef.CreditAmtFloat0 = 0;
+	SET PscRqRef.CreditAmtFloat1 = 0;
+	SET PscRqRef.CreditAmtFloat2 = 0;
+	SET PscRqRef.CreditAmtFloat3 = 0;
+	SET PscRqRef.CreditAmtFloat4 = 0;
+	SET PscRqRef.CreditAmtFloat5 = 0; 
+	SET PscRqRef.CreditAmtFloat6 = 0;
+	SET PscRqRef.CreditAmtFloat7 = 0;
+	SET PscRqRef.CreditTrnCurCode = COALESCE(XferAddRqRef.XferToInfo.CurAmt.CurCode.Value,'');
+	SET PscRqRef.CreditTrnAuxDom = COALESCE(XferAddRqRef.XferToInfo.AuxDom,'0');
+	SET PscRqRef.CreditTrnExAuxDom = COALESCE(XferAddRqRef.XferToInfo.ExAuxDom ,'');
+	SET PscRqRef.CreditTrnNarrative = COALESCE(XferAddRqRef.XferToInfo.Memo[1],'') || COALESCE(XferAddRqRef.XferToInfo.Memo[2],'') ||COALESCE(XferAddRqRef.XferToInfo.Memo[3],'') || COALESCE(XferAddRqRef.XferToInfo.Memo[4],'');
+	IF XferAddRqRef.OverrideFunds = '1' THEN
+		SET PscRqRef.ForceDebitInd = 'Y';
+	ELSE 
+		SET PscRqRef.ForceDebitInd = 'N';
+	END IF;		
+	SET PscRqRef.Filler = '';
+	  --Set the ProcessingStage to Cache
+	CALL CcnSetNamedCharValue(Environment, 'ProcessingStage', 'CACHE'); 	
+	
+	RETURN TRUE;
+	END;
+
+END MODULE;

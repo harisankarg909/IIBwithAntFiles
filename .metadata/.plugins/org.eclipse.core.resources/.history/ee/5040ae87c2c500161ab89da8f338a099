@@ -1,0 +1,11 @@
+
+drive.home=C:
+toolkit.home=${drive.home}\Program Files\IBM\IIB\10.0.0.6
+workspaces.dir=${basedir}\..
+bar.name=myBar.bar
+bar.properties.name=${basedir}
+
+<!-- Properties to be updated ->
+app.name=BTM_Trades
+integration.node=TESTNODE
+integration.server=EG1

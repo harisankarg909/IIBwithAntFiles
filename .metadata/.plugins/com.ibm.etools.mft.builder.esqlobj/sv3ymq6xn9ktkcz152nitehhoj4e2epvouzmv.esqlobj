@@ -1,0 +1,77 @@
+CREATE PROCEDURE SetClientRsStatusFrmPvrSI(IN EnvRef REFERENCE, IN InTSMDAInfoRef REFERENCE, IN TsmdaFldPfx CHAR) BEGIN
+	
+	/* Declare a reference to the last error block in the TSMDA based on the number of occurances,
+	 not the total number of records as not all records are filled.  The last of the total number
+	 of occurances is the lowest but if we need to build additional status blocks this will be moved down the tree
+	 as the status block is updated with the previous (next highest) error block. */
+	DECLARE MdaMsgIdx INTEGER InTSMDAInfoRef.{TsmdaFldPfx || 'MDA_STEM'}.{TsmdaFldPfx || 'MDA_OCCURRENCE_IN_PROC'};
+	DECLARE TSMDAMessage REFERENCE TO InTSMDAInfoRef.{TsmdaFldPfx || 'MDA_TRM_MSG'}.{TsmdaFldPfx || 'MDA_MSG'}[MdaMsgIdx];
+	DECLARE MoveToAdditional BOOLEAN FALSE;
+	DECLARE ClientDebitAuthAddRsRef REFERENCE TO EnvRef;
+	CALL CcnGetClientRsRef(EnvRef, ClientDebitAuthAddRsRef);
+	-- CMP 10.2 Defect #4340 Fix(Addressing Production Incident #6486881) : SIProviderName will facilitate to have a service specific entry in CIMErrToStatusMap table
+	DECLARE SIProviderName CHARACTER EnvRef.ContextInfo.Service.ServiceName ||'/'|| EnvRef.ContextInfo.Service.ServiceVersion || '/SI';
+		
+	WHILE (LASTMOVE(TSMDAMessage) = TRUE) DO
+		--- Check to see if we need to move the current status block to additional status blcok
+		IF (MoveToAdditional = TRUE) THEN
+			CALL CcnSetClientRsStatusRetainExisting(EnvRef, '', '', '', '');
+			SET MoveToAdditional = FALSE;
+		END IF;
+		
+		--- Build the status block.
+		CALL CcnSetClientRsStatusFromProvider(EnvRef, SIProviderName, CAST(TSMDAMessage.{TsmdaFldPfx || 'MDA_MESSAGE_CODE'} AS CHAR),
+											'', TSMDAMessage.{TsmdaFldPfx || 'MDA_VARIABLE_DATA'}.{TsmdaFldPfx || 'MDA_VARIABLE_1'}
+											 || TSMDAMessage.{TsmdaFldPfx || 'MDA_VARIABLE_DATA'}.{TsmdaFldPfx || 'MDA_VARIABLE_2'});
+		
+		/* For Systematics, the rule of thumb is that if the status code returned by 
+		CcnSetClientRsStatusFromProvider is 100 and the MsgSeverityCode was I for Informational, then remove
+		the created status block from the message, as the only time a client receives an "Informational"
+		host translation is ONLY if the host condition is mapped out in the database table.
+		*/
+		
+		--- Move the status block if we want to keep it into the AddionalStatus block ready for processing
+		--- of subsequent tsmda errors.
+		DECLARE ClientRsStatusRef REFERENCE TO ClientDebitAuthAddRsRef.Status;
+		-- CMP Defect #4011 Fix : Mapping SI error code 'IM1802' to CIM error code '2900'
+--		IF (ClientRsStatusRef.StatusCode = '1000') AND (TSMDAMessage.{TsmdaFldPfx || 'MDA_MESSAGE_CODE'} = 'IM1802') THEN
+--			SET ClientDebitAuthAddRsRef.Status.StatusCode = '2900';
+--			SET ClientDebitAuthAddRsRef.Status.ServerStatusCode = 'SI IM1802';
+--			SET ClientDebitAuthAddRsRef.Status.Severity = 'Error';
+--			SET ClientDebitAuthAddRsRef.Status.StatusDesc = 'Duplicate Payment/Transfer Exists';
+--		END IF;
+		-- CMP Defect #3863 Fix : Mapping SI error code 'IM0129' to CIM error code '2940'
+--		IF (ClientRsStatusRef.StatusCode = '3610') AND (TSMDAMessage.{TsmdaFldPfx || 'MDA_MESSAGE_CODE'} = 'IM0129') THEN
+--			SET ClientDebitAuthAddRsRef.Status.StatusCode = '2940';
+--			SET ClientDebitAuthAddRsRef.Status.ServerStatusCode = 'SI IM0129';
+--			SET ClientDebitAuthAddRsRef.Status.Severity = 'Error';
+--			SET ClientDebitAuthAddRsRef.Status.StatusDesc = 'Insufficient Funds';
+--		END IF;
+		IF (ClientRsStatusRef.StatusCode <> '100') AND (TSMDAMessage.{TsmdaFldPfx || 'MDA_MSG_SEVERITY_CODE'} = 'I') THEN
+			SET MoveToAdditional = TRUE;
+		END IF;
+		
+		--- Move back up the error tree, moving higher up the severity.
+		MOVE TSMDAMessage PREVIOUSSIBLING REPEAT NAME;
+		
+	END WHILE;
+	
+	--- We have now processed all TSMDA blocks, if the last one processed is an info then delete
+	--- and map back the last additional status into the main status.
+	DECLARE ClientRsStatusRef REFERENCE TO ClientDebitAuthAddRsRef.Status;
+	IF (ClientRsStatusRef.StatusCode = '100') AND (TSMDAMessage.{TsmdaFldPfx || 'MDA_MSG_SEVERITY_CODE'} = 'I') THEN
+		--- If previous status block was moved into the Additional status block, so we need to move the last one back.
+		DECLARE AdditionalRef REFERENCE TO EnvRef;
+		MOVE AdditionalRef TO ClientDebitAuthAddRsRef.Status.AdditionalStatus[<];
+		IF (LASTMOVE(AdditionalRef) = TRUE) THEN
+			SET ClientDebitAuthAddRsRef.Status.StatusCode = AdditionalRef.StatusCode;
+			SET ClientDebitAuthAddRsRef.Status.ServerStatusCode = AdditionalRef.ServerStatusCode;
+			SET ClientDebitAuthAddRsRef.Status.Severity = AdditionalRef.Severity;
+			SET ClientDebitAuthAddRsRef.Status.StatusDesc = AdditionalRef.StatusDesc;
+			DELETE FIELD ClientDebitAuthAddRsRef.Status.AdditionalStatus[<];
+		ELSE
+			DELETE FIELD ClientDebitAuthAddRsRef.Status;
+		END IF;
+		
+	END IF;
+END;

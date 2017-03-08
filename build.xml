@@ -1,0 +1,131 @@
+<?xml version="1.0"?>
+<project name="project">
+  <property file="build.properties"/>
+
+  <!--
+    Target to build the broker archive using mqsicreatebar
+  -->
+  <target name="mqsicreatebar.buildbar">
+    <echo message="Building Broker Archive file: ${bar.name} " />
+  	<echo message="Base Dir: ${basedir} " />
+  	<echo message="workspaces Dir: ${workspaces.dir} " />
+    
+  	<exec executable="${drive.home}\Program Files\IBM\IIB\10.0.0.6\tools\mqsicreatebar.exe" spawn="false">
+      <arg value="-data" />
+      <arg value="${basedir}\..\.." />
+      <arg value="-b" />
+      <arg value="${bar.name}" />
+      <arg value="-a" />
+      <arg value="${app.name}" />
+      
+    </exec>
+    <echo message="Completed building Broker Archive file - ${bar.name} " />
+  </target>
+	
+	<target name="mqsicreate.baroverride">
+	   
+		<unzip src ="myBar.bar" dest = "${basedir}/unzipped" />
+		<unzip src ="unzipped/${app.name}.appzip" dest = "${basedir}/unzipped/appzipUnzipped" />
+		<copy file="${basedir}/unzipped/appzipUnzipped/META-INF/broker.xml" todir="${drive.home}/test/BrokerXMLIn"/>
+		
+		<!-- wait till brokeroverride.properties file reaches -->
+		<waitfor maxwait="3" maxwaitunit="minute" checkevery="500">
+					<available file="${drive.home}/test/overrideProp/brokeroverride.properties"/>
+		</waitfor>
+		
+		
+		<copy file="${drive.home}/test/overrideProp/brokeroverride.properties" todir="${basedir}/baroverride"/>
+		<echo message="Completed unzipping Broker Archive file - ${bar.name} " />
+		<delete file="${drive.home}/test/overrideProp/brokeroverride.properties"/>
+		<delete dir="unzipped"/>
+	  </target>
+
+	<target name="mqsiapply.baroverride">
+	   
+	    
+		<exec executable="${drive.home}\Program Files\IBM\IIB\10.0.0.6\server\bin\mqsiapplybaroverride.bat" spawn="false">
+		      <arg value="-b" />
+		      <arg value="${bar.name}" />
+			  <arg value="-k" />
+		      <arg value="${app.name}" />
+		      <arg value="-p" />
+		      <arg value="${bar.properties.name}\baroverride\brokeroverride.properties" />
+			  <arg value="-r" />
+		    </exec>
+	    <echo message="Completed overriding - ${bar.name} " />
+	  </target>
+	<target name="mqsideploy.bar" depends="mqsicreatebar.buildbar">
+		   
+		    
+			<exec executable="${drive.home}\Program Files\IBM\IIB\10.0.0.6\server\bin\mqsideployscript.bat" spawn="false">
+				<arg value="${integration.node}" />  
+				<arg value="-e" />
+			      <arg value="${integration.server}" />
+			      <arg value="-a" />
+			      <arg value="${bar.name}" />
+			    </exec>
+		    <echo message="Completed deploying - ${bar.name} into Intergarion Node : ${integration.node} under Integration Server : ${integration.server}" />
+		  </target>
+
+	<target name="IAM2" depends="mqsicreatebar.buildbar">
+		<unzip src ="myBar.bar" dest = "${basedir}/UnzippedFromBar" />
+		
+		<!-- wait till brokeroverride.properties file reaches -->
+				<waitfor maxwait="1" maxwaitunit="minute" checkevery="50">
+							<available file="${basedir}/UnzippedFromBar/${app.name}.appzip"/>
+				</waitfor>
+		<unzip src ="${basedir}/UnzippedFromBar/${app.name}.appzip" dest = "${basedir}/UnzippedForPerl" />
+	
+		<concat destfile="${basedir}/build/consolidated.cmf">
+	        <fileset dir="${basedir}/UnzippedForPerl" includes="*.cmf" />
+	    </concat>
+		<delete dir="${basedir}/UnzippedForPerl"/>
+		<delete dir="${basedir}/UnzippedFromBar"/>
+		
+		<exec executable="${drive.home}\Program Files\IBM\IIB\10.0.0.6\server\bin\mqsichangetrace.exe" spawn="false">
+				      <arg value="${integration.node}" />
+				      <arg value="-u" />
+					  <arg value="-e" />
+			          <arg value="${integration.server}" />
+					  <arg value="-l" />
+				      <arg value="debug" />
+				      <arg value="-c" />
+				      <arg value="20000" />
+					  <arg value="-r" />
+				    </exec>
+			    <echo message="Completed setting user trace level for EG : ${integration.server} " />
+		<input
+		    message="Please test the interface and press any key (y/n) to continue....."
+		    validargs="y,n"
+		    addproperty="do.delete"
+		  />
+		  <condition property="do.abort">
+		    <equals arg1="n" arg2="${do.delete}"/>
+		  </condition>
+		  <fail if="do.abort">Build aborted by user.</fail>
+		
+		
+		
+		<exec executable="${drive.home}\Program Files\IBM\IIB\10.0.0.6\server\bin\mqsireadlog.exe" spawn="false">
+						      <arg value="${integration.node}" />
+						      <arg value="-u" />
+							  <arg value="-e" />
+					          <arg value="${integration.server}" />
+							  <arg value="-o" />
+						      <arg value="${basedir}/build/usertrace.txt" />
+						     
+						    </exec>
+		<echo message="Completed generating usetrace.txt file " />
+
+		
+		<exec dir="${basedir}/build" executable="${drive.home}\Strawberry\perl\bin\perl.exe">
+						      <arg value="evaluator.pl" />
+						      <arg value="usertrace.txt" />
+							  <arg value="consolidated.cmf" />
+					          <arg value="REPORT.txt" />
+						     
+						    </exec>
+		<echo message="Completed generating REPORT.txt file " />
+	
+	</target>
+</project>

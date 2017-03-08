@@ -1,0 +1,177 @@
+CREATE PROCEDURE XferAdd_Mdz0101Req_AddPscRq(IN EnvRef REFERENCE,IN RsQueueName CHARACTER)
+BEGIN
+	---------------------------------------------------------------------------
+    -- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    
+    DECLARE XferAddRqRef REFERENCE TO EnvRef;
+    CALL CcnGetClientRqRef(EnvRef, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    DECLARE MdzRqQueueName CHAR;
+    
+    ---------------------------------------------------------------------------
+	  -- Get  reference to the client response message
+	---------------------------------------------------------------------------  
+    DECLARE XferAddRsRef REFERENCE TO EnvRef;
+	CALL CcnGetClientRsRef(EnvRef, XferAddRsRef);
+    
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO EnvRef;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	-- PscName set to XferAddMdz to avoid conflict among two calls with 'FIXED' PscType
+	CALL CcnAddProviderServiceCall(EnvRef,PscRef,'MIDANZ','FIXED','XferAddMdz',PscPrimaryKey,'');	
+	
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(EnvRef, 'CcnMdzUuid', CcnGetPscUUID(PscRef));
+	
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-- Message set -- XferAddMdz0401_MS
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgSet(PscRef, 'G9H0824002001');
+	CALL CcnSetPscRsMsgSet(PscRef, 'G9H0824002001');
+	CALL CcnSetPscRqMsgType(PscRef, 'XferAddMdzRq');
+    CALL CcnSetPscRqMsgFormat(PscRef, 'CWF');
+	CALL CcnSetPscRsMsgType(PscRef, 'XferAddMdzRs');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'CWF');
+    
+    ---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO EnvRef;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+	
+	---------------------------------------------------------------------------    
+	-- Set the provider service call endpoints    
+    ---------------------------------------------------------------------------  
+    
+    DECLARE countryStructureRef REFERENCE TO XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData; 
+	    
+    --Setting MIDANZ provider queue name pattren from ccnSrvEndPoint table
+    SET MdzRqQueueName = CcnGetServiceEndpointOptionalId(EnvRef,XferAddRqRef.MsgRqHdr.SignonRq.ClientApp.Name,'','MIDANZ');
+  	--Replace 'xx' with country code
+  	SET MdzRqQueueName = REPLACE(MdzRqQueueName, 'xx' , UPPER(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.SPName FROM 1 FOR 2)));
+	CALL CcnSetPscEndpoints(PscRef, MdzRqQueueName, RsQueueName);
+	
+	-----------------------------------------------------------------------------
+	-- Override REQUEST RESPONSE behavior to DATAGRAM
+	-----------------------------------------------------------------------------
+		CALL CcnSetPscMep(PscRef, 'ONE_WAY');	
+	
+			
+	/* Make the output message persistant */
+	CALL CcnSetPscRqPersistent(PscRef);	
+	
+	---------------------------------------------------------------------------    
+	-- Construct Request Message    
+    ---------------------------------------------------------------------------
+	
+	CREATE FIELD PscRqRef.ServiceRequest VALUE 'XferAddMdzRq';
+	CREATE FIELD PscRqRef.MsgVersionId VALUE '04'; -- VersionId waved for '07 version'
+	CREATE FIELD PscRqRef.RqUID VALUE COALESCE(XferAddRqRef.RqUID,'');
+	CREATE FIELD PscRqRef.MsgRqHdr;
+	
+	DECLARE MsgRqHdrRefPsc REFERENCE TO PscRqRef.MsgRqHdr;
+	DECLARE DtPattern CHAR 'yyyy-MM-ddTHH:mm:ss.SSSZZZ';
+	
+	CREATE FIELD PscRqRef.MsgRqHdr.NetworkTrnInfo.NetworkOwner VALUE COALESCE(MsgRqHdrRef.NetworkTrnInfo.NetworkOwner,'');
+	CREATE FIELD PscRqRef.MsgRqHdr.NetworkTrnInfo.TerminalId VALUE COALESCE(MsgRqHdrRef.NetworkTrnInfo.TerminalId,'');
+	CREATE FIELD PscRqRef.MsgRqHdr.NetworkTrnInfo.TerminalType VALUE COALESCE(MsgRqHdrRef.NetworkTrnInfo.TerminalType,'');
+	CREATE FIELD PscRqRef.MsgRqHdr.NetworkTrnInfo.Name VALUE COALESCE(MsgRqHdrRef.NetworkTrnInfo.Name,'');
+	
+	IF ((EnvRef.ContextInfo.Message.MsgContext.ClientQualifier IS NOT NULL) AND (TRIM(EnvRef.ContextInfo.Message.MsgContext.ClientQualifier) <> '')) THEN
+		SET PscRqRef.MsgRqHdr.NetworkTrnInfo.Name = COALESCE(MsgRqHdrRef.NetworkTrnInfo.Name,'') || ':' || EnvRef.ContextInfo.Message.MsgContext.ClientQualifier;
+	END IF;
+	
+	CREATE FIELD PscRqRef.MsgRqHdr.NetworkTrnInfo.BankIdType VALUE COALESCE(MsgRqHdrRef.NetworkTrnInfo.BankIdType,'');    
+   	CREATE FIELD PscRqRef.MsgRqHdr.NetworkTrnInfo.BankId VALUE COALESCE(MsgRqHdrRef.NetworkTrnInfo.BankId,'');
+   	
+	-- Date Format Fix
+	IF (LENGTH(MsgRqHdrRef.SignonRq.ClientDt) <= 20) THEN
+		SET MsgRqHdrRef.SignonRq.ClientDt = TRIM(Trailing 'Z' FROM MsgRqHdrRef.SignonRq.ClientDt) ||'.000Z';
+	END IF;
+   	
+	IF ((MsgRqHdrRef.SignonRq.ClientDt IS NOT NULL) AND (MsgRqHdrRef.SignonRq.ClientDt) <> '') THEN		
+		CREATE FIELD PscRqRef.MsgRqHdr.SignonRq.ClientDt VALUE CAST(MsgRqHdrRef.SignonRq.ClientDt AS CHAR FORMAT DtPattern);
+	ELSE 
+		CREATE FIELD PscRqRef.MsgRqHdr.SignonRq.ClientDt VALUE (CAST(CURRENT_DATE AS CHARACTER FORMAT 'yyyy-MM-dd')||'T'||CAST(CURRENT_GMTTIMESTAMP AS CHARACTER FORMAT 'T'));
+	END IF;
+     -- Defect #3286 : Fix to map the Org from SPName in Client request, rather than from ClientApp.Org itself
+	CREATE FIELD PscRqRef.MsgRqHdr.SignonRq.ClientApp.Org VALUE COALESCE(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.SPName BEFORE '/'),'');
+	CREATE FIELD PscRqRef.MsgRqHdr.SignonRq.ClientApp.Name VALUE COALESCE(MsgRqHdrRef.SignonRq.ClientApp.Name,'');
+	CREATE FIELD PscRqRef.MsgRqHdr.SignonRq.ClientApp.Version VALUE COALESCE(MsgRqHdrRef.SignonRq.ClientApp.Version,'');
+	
+	CREATE FIELD PscRqRef.XferInfo.AcctRefFrom.BranchIdent VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent,'');
+	CREATE FIELD PscRqRef.XferInfo.AcctRefFrom.AcctRec.AcctId VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId,'');
+    CREATE FIELD PscRqRef.XferInfo.AcctRefFrom.AcctRec.AcctInfo.AcctType VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.AcctType,'');
+    CREATE FIELD PscRqRef.XferInfo.AcctRefFrom.AcctRec.AcctInfo.FIIdent.Country VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.Country,'');
+    
+    CREATE FIELD PscRqRef.XferInfo.AcctRefTo.BranchIdent VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent,'');
+    CREATE FIELD PscRqRef.XferInfo.AcctRefTo.AcctRec.AcctId VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctId,'');
+    CREATE FIELD PscRqRef.XferInfo.AcctRefTo.AcctRec.AcctInfo.AcctType VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.AcctType,'');
+    CREATE FIELD PscRqRef.XferInfo.AcctRefTo.AcctRec.AcctInfo.FIIdent.Country VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.FIData.Country,'');
+    
+    CREATE FIELD PscRqRef.XferInfo.CurAmt.Amt VALUE COALESCE(XferAddRqRef.XferFromInfo.CurAmt.Amt, 0);
+    CREATE FIELD PscRqRef.XferInfo.CurAmt.CurCode VALUE COALESCE(XferAddRqRef.XferFromInfo.CurAmt.CurCode.Value, '');
+    
+    CREATE FIELD PscRqRef.XferInfo.ForExRateInfo.CurAmt.Amt VALUE 0;
+    CREATE FIELD PscRqRef.XferInfo.ForExRateInfo.CurAmt.CurCode VALUE '';
+    CREATE FIELD PscRqRef.XferInfo.ForExRateInfo.CurRate VALUE 0;
+    CREATE FIELD PscRqRef.XferInfo.ForExRateInfo.CurConvertRule VALUE '';
+    
+    -- CMP 10.2 Defect Fix #3148 : BaseEnvr is a mandatory block in MIDANZ
+    -- Added this If condtion check as part of TAS 13.2 Release
+    IF((XferAddRqRef.LienExpDt IS NOT NULL) AND (XferAddRqRef.LienExpDt <> '')) THEN
+    	CREATE FIELD PscRqRef.XferInfo.BaseEnvr.CreatedDt VALUE (XferAddRqRef.LienExpDt || 'T00:00:00.000+00:00');
+	ELSE 
+    	CREATE FIELD PscRqRef.XferInfo.BaseEnvr.CreatedDt VALUE COALESCE((XferAddRqRef.XferFromInfo.PrcDt || 'T00:00:00.000+00:00'), XferAddRqRef.MsgRqHdr.SignonRq.ClientDt);
+	END IF; 
+		
+    CREATE FIELD PscRqRef.XferInfo.BaseEnvr.CreateRefId VALUE COALESCE(XferAddRqRef.PmtRefId,'');
+   	CREATE FIELD PscRqRef.XferInfo.BaseEnvr.ClientBusinessDt VALUE COALESCE((XferAddRqRef.XferFromInfo.PrcDt || 'T00:00:00.000+00:00'), XferAddRqRef.MsgRqHdr.SignonRq.ClientDt);
+
+    CREATE FIELD PscRqRef.OverrideFunds VALUE 'N';
+	IF (COALESCE(XferAddRqRef.OverrideFunds, '') = '1') THEN
+			SET PscRqRef.OverrideFunds = 'Y';
+	END IF;
+	CREATE FIELD PscRqRef.DRStatementNarrative VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferFromInfo.Memo[1]) FROM 1 FOR 60),'');
+	CREATE FIELD PscRqRef.CRStatementNarrative VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferToInfo.Memo[1]) FROM 1 FOR 60),'');
+	-- Below Fields are added for the '07 version'
+	 CREATE FIELD PscRqRef.SourceTrancode VALUE COALESCE(XferAddRqRef.XferFromInfo.TrnCode, '');
+	 CREATE FIELD PscRqRef.TargetTrancode VALUE COALESCE(XferAddRqRef.XferToInfo.TrnCode, '');
+ 	-- Below Field is added for the CR 249 
+	 CREATE FIELD PscRqRef.RefNumber VALUE COALESCE(XferAddRqRef.RefNum, '');
+	 
+	 --Below field added for TAS 14.2 - Fund transfer changes for Off Balance entry sheet for china 
+	 CREATE FIELD PscRqRef.MemoPostType VALUE COALESCE(XferAddRqRef.MemoPostType, '');
+
+	 /* Below OverrRestrcnSrcAcctFlg & OverrRestrcnTrgAcctFlg fields added for TAS 15.1 PC 
+	    Fund transfer changes for Restricted accounts handling in the Credit and debit legs */ 
+	 IF (COALESCE(XferAddRqRef.XferFromInfo.OverrideRestriction,'') = '1') THEN
+	 	CREATE FIELD PscRqRef.OverrRestrcnSrcAcctFlg VALUE 'Y';
+	 ELSE
+	 	CREATE FIELD PscRqRef.OverrRestrcnSrcAcctFlg VALUE 'N'; 
+	 END IF;
+	 
+	 IF (COALESCE(XferAddRqRef.XferToInfo.OverrideRestriction,'') = '1') THEN
+	 	CREATE FIELD PscRqRef.OverrRestrcnTrgAcctFlg VALUE 'Y';
+	 ELSE
+	 	CREATE FIELD PscRqRef.OverrRestrcnTrgAcctFlg VALUE 'N'; 
+	 END IF;	 
+ 	--------------------------------------------------------------------------
+	-- Setup specific MQMD overrides required specificially by the MIDANZ
+	--------------------------------------------------------------------------
+	DECLARE PscOverridesMqmdRef REFERENCE TO EnvRef;
+	CALL CcnAddPscRqMqmdOverride(PscRqRef, PscOverridesMqmdRef);
+
+	SET PscOverridesMqmdRef.ReplyToQ = RsQueueName;
+	 
+		--Set the ProcessingStage to MIDANZ
+	CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'MIDANZ');
+END;

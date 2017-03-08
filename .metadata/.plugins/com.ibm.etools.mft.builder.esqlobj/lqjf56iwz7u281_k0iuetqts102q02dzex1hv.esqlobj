@@ -1,0 +1,203 @@
+CREATE PROCEDURE XferAdd_PctmOdsMtrfWrsp0200Req_AddPscRq(IN EnvRef REFERENCE,IN RsQueueName CHARACTER)
+BEGIN
+	---------------------------------------------------------------------------
+    -- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    DECLARE XferAddRqRef REFERENCE TO EnvRef;
+    CALL CcnGetClientRqRef(EnvRef, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    DECLARE PctmOdsRqQueueName CHAR;
+    
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO EnvRef;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	-- PscName set to PCTM-ODS-MTRF-WRSP-REQ to avoid conflict among two calls with 'FIXED' PscType
+	CALL CcnAddProviderServiceCall(EnvRef,PscRef,'CTM','FIXED','PctmOdsMtrfWrsp0200',PscPrimaryKey,'');
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(EnvRef, 'CcnPctmOdsUuid', CcnGetPscUUID(PscRef));
+	
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-- Message set -- PctmOdsMtrfWrsp0200_MS
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgSet(PscRef, 'LCFRHRO002001');
+	CALL CcnSetPscRsMsgSet(PscRef, 'LCFRHRO002001');
+	CALL CcnSetPscRqMsgType(PscRef, 'MultiFundsTransferWRspRequest2');
+    CALL CcnSetPscRqMsgFormat(PscRef, 'CWF');
+	CALL CcnSetPscRsMsgType(PscRef, 'MultiFundsTransferWRspResponse2');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'CWF');
+    
+    ---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO EnvRef;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+	
+	---------------------------------------------------------------------------    
+	-- Set the provider service call endpoints    
+    ---------------------------------------------------------------------------    
+    DECLARE OrigApp CHAR COALESCE(XferAddRqRef.MsgRqHdr.SignonRq.ClientApp.Name, 'CMO');
+    -- CMP 10.2 Production Defect Fix #4382 : Permanent Fix for queue 'PCTM.ODS.LRC.REQUEST' (related to defect #4333)
+    -- Defect #3286 : Fix to map the Org from SPName in Client request, rather than from ClientApp.Org itself
+    SET MsgRqHdrRef.SignonRq.ClientApp.Org = SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.SPName BEFORE '/');
+    DECLARE CtmQueueSuffix CHAR;
+    -- CMP 10.2 Defect #3474 : Incorporated the queue change for NZ specific request messages
+    IF (XferAddRqRef.XferFromInfo.AcctRef.SPName = 'nz.co.anz/retail') THEN
+    	SET CtmQueueSuffix = 'ODS.LRC.REQUEST';
+    ELSE
+    	SET CtmQueueSuffix = 'ODS.LR.REQUEST';
+    END IF;
+    CALL CcnSetPscEndpoints(PscRef, CcnGetCapCtmQ(PscRef, MsgRqHdrRef, CtmQueueSuffix), RsQueueName);
+    
+    ---------------------------------------------------------------------------    
+	-- Construct Request Message    
+    ---------------------------------------------------------------------------
+    
+    -- Add the Tasman standard input header
+    DECLARE ClientDate CHARACTER MsgRqHdrRef.SignonRq.ClientDt;
+    SET MsgRqHdrRef.SignonRq.ClientDt = TRIM(Trailing 'Z' FROM ClientDate);
+    
+    -- Defect #3286 : Fix to map the Org from SPName in Client request, rather than from ClientApp.Org itself
+    --SET MsgRqHdrRef.SignonRq.ClientApp.Org = SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.SPName BEFORE '/');
+	CALL CcnAddPscRqStdInHdr(PscRqRef, MsgRqHdrRef, 'StandardInputHeader', 'PCTM-ODS-MTRF-WRSP-REQ', '02', OrigApp);
+	-- CMP 10.2 Defect #3700 : Fix supplied to map EffectiveDate to PrcDt sent by consumer
+	SET PscRqRef.StandardInputHeader.EffectiveDate = COALESCE(XferAddRqRef.XferFromInfo.PrcDt, CURRENT_DATE);
+	
+	--PaTs stream1 changes
+    IF((MsgRqHdrRef.NetworkTrnInfo.NetworkRefId IS NOT NULL) AND (MsgRqHdrRef.NetworkTrnInfo.NetworkRefId <> '')) THEN
+       --covert terminal id IP address to Hex
+      SET PscRqRef.StandardInputHeader.WorkstationId = CTM_ConvertIPAddr(MsgRqHdrRef.NetworkTrnInfo.TerminalId);
+    ELSE 
+	   SET PscRqRef.StandardInputHeader.WorkstationId = UPPER(RIGHT(TRIM(MsgRqHdrRef.NetworkTrnInfo.TerminalId), 8));
+	END IF;
+	
+	-- Add the Tasman secondary registration header
+    DECLARE AcctNum CHARACTER;
+    DECLARE AccountNumAu CHARACTER;
+    -- Create_AccountNumber builds a 17 digit (right just, zero filled) number
+	SET AccountNumAu = Create_AccountNumber (XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId);
+    
+    -- CMP 10.2 : Defect Fix #3180
+    IF(XferAddRqRef.XferFromInfo.AcctRef.SPName = 'nz.co.anz/retail') THEN
+		SET AcctNum = (SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 3 FOR 4)|| XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId);
+	ELSE
+		-- CMP 10.2 Production Defect Fix #4346 : Set AcctNum in the format --> BranchIdent || AcctId
+		SET AcctNum = COALESCE(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 1 FOR 6),'000000') || AccountNumAu;
+	END IF;
+	
+	--PaTs stream1 changes
+	DECLARE RegNum CHARACTER '0';
+	DECLARE LinkNum CHARACTER '0';
+	
+	IF(XferAddRqRef.CustId.CustPermId IS NOT NULL AND XferAddRqRef.CustId.CustPermId <> '' )THEN
+	   SET RegNum = XferAddRqRef.CustId.CustPermId;
+	END IF;
+	
+	IF(XferAddRqRef.XferFromInfo.ANZAcctLinkageNum IS NOT NULL AND XferAddRqRef.XferFromInfo.ANZAcctLinkageNum <> '') THEN
+	   SET LinkNum = XferAddRqRef.XferFromInfo.ANZAcctLinkageNum;
+	END IF;
+	
+	CALL CcnAddPscRqSecRegHdr(PscRqRef, 'SecondaryRegistrationHeader', COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctType,''), COALESCE(AcctNum,'0'), RegNum, LinkNum);
+    
+    CREATE FIELD PscRqRef.UniqueTxnIdentifier VALUE XferAddRqRef.PmtRefId;
+    
+    DECLARE PostInd CHAR 'NNYNYNNY';
+    IF (XferAddRqRef.RecoveryTrn = '1') THEN
+    	CREATE FIELD PscRqRef.ShadowPostIndicator VALUE OVERLAY(PostInd PLACING 'Y' FROM 4 FOR 1);
+    END IF;
+	IF (XferAddRqRef.OverrideFunds = '1') THEN		
+		CREATE FIELD PscRqRef.ShadowPostIndicator VALUE OVERLAY(PostInd PLACING 'Y' FROM 2 FOR 1);
+	END IF;
+	IF(XferAddRqRef.ReversalTrn = '1') THEN 
+		CREATE FIELD PscRqRef.ShadowPostIndicator VALUE OVERLAY(PostInd PLACING 'Y' FROM 1 FOR 1);
+	END IF;
+    
+    --Defect fix for #361 PaTS_DS2 override funds
+    CREATE FIELD PscRqRef.MustPostFlag VALUE COALESCE(XferAddRqRef.MustPost,'0');
+    
+    CREATE FIELD PscRqRef.Filler VALUE 'N              ';
+    CREATE FIELD PscRqRef.Trace VALUE XferAddRqRef.PmtRefId;
+	-- CMP 10.2 Defect Fix #3144
+	DECLARE P INTEGER 1;
+	DECLARE Flag INTEGER 0;
+	DECLARE var1 CHARACTER;
+    -- Removed CARDINALITY As identified during Functional review of XferAdd09 
+    DECLARE R INTEGER (SELECT COUNT(*) FROM  XferAddRqRef.XferFromInfo.RefInfo[]);
+    WHILE (P <= R) DO
+		IF (XferAddRqRef.XferFromInfo.RefInfo[P].RefType = 'TransactionType') THEN
+	    	SET Flag = 1;
+	    	SET var1 = XferAddRqRef.XferFromInfo.RefInfo[P].RefId;
+		END IF;
+		SET P = P + 1;
+    END WHILE;
+    IF Flag = 1 THEN
+    	CREATE FIELD PscRqRef.TransactionType VALUE var1;
+    ELSE
+    	CREATE FIELD PscRqRef.TransactionType VALUE '0';
+    END IF;
+	    
+    CREATE FIELD PscRqRef.ReceiptNumber VALUE COALESCE(XferAddRqRef.ReceiptNum,0);
+    CREATE FIELD PscRqRef.TotalDebitAmount VALUE COALESCE(XferAddRqRef.XferFromInfo.CurAmt.Amt,0.00);
+    CREATE FIELD PscRqRef.UnclearedAmount VALUE 0.00;
+    CREATE FIELD PscRqRef.CreditTranCode VALUE COALESCE(XferAddRqRef.XferFromInfo.TrnCode,0);
+    CREATE FIELD PscRqRef.ItemType VALUE COALESCE(XferAddRqRef.XferFromInfo.ItemType,'');
+    CREATE FIELD PscRqRef.CreditGenericField1 VALUE COALESCE(XferAddRqRef.XferFromInfo.AuxDom,'');   
+    CREATE FIELD PscRqRef.CreditGenericField2 VALUE COALESCE(XferAddRqRef.XferFromInfo.ExAuxDom,'');
+    CREATE FIELD PscRqRef.CreditDescription1 VALUE COALESCE(XferAddRqRef.XferFromInfo.Memo[1],'');
+    CREATE FIELD PscRqRef.CreditDescription2 VALUE COALESCE(XferAddRqRef.XferFromInfo.Memo[2],'');
+    CREATE FIELD PscRqRef.CreditDescription3 VALUE COALESCE(XferAddRqRef.XferFromInfo.Memo[3],'');
+    CREATE FIELD PscRqRef.CreditDescription4 VALUE COALESCE(XferAddRqRef.XferFromInfo.Memo[4],'');
+    CREATE FIELD PscRqRef.AuthLimit VALUE ' ';
+    -- CMP 10.2 Defect Fix #3144 : Including debit plus total number of credit
+    
+    -- Removed CARDINALITY As identified during Functional review of XferAdd09 
+    DECLARE numOfFromInfo INTEGER (SELECT COUNT(*) FROM  XferAddRqRef.XferFromInfo[]);
+    DECLARE numOfToInfo INTEGER (SELECT COUNT(*) FROM XferAddRqRef.XferToInfo[]);
+
+    DECLARE Num INTEGER numOfFromInfo + numOfToInfo;
+    CREATE FIELD PscRqRef.NumberOfOccurrences VALUE Num;--CARDINALITY(XferAddRqRef.XferToInfo[]);
+    
+    --CreditDetails Repeating Group
+    
+    DECLARE J INTEGER 1;
+       WHILE (J <= numOfToInfo) DO	    	 
+	    CREATE FIELD PscRqRef.CreditDetails2[J].InstanceNumber VALUE J;
+	    DECLARE TransToAccount CHARACTER;
+	    DECLARE ToAccountNumAu CHARACTER;
+	    -- Create_AccountNumber builds a 17 digit (right just, zero filled) number
+		SET ToAccountNumAu = Create_AccountNumber (XferAddRqRef.XferToInfo[J].AcctRef.AcctRec.AcctId);
+	    -- CMP 10.2 : Defect Fix #3180
+	    IF(XferAddRqRef.XferFromInfo.AcctRef.SPName = 'nz.co.anz/retail') THEN
+	    	SET TransToAccount = SUBSTRING(XferAddRqRef.XferToInfo[J].AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 3 FOR 4)|| XferAddRqRef.XferToInfo[J].AcctRef.AcctRec.AcctId;
+	    ELSE
+    		-- CMP 10.2 Production Defect Fix #4346 : Set TransToAccount in the format --> BranchIdent || AcctId	
+    		SET TransToAccount = COALESCE(SUBSTRING(XferAddRqRef.XferToInfo[J].AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 1 FOR 6),'000000') || ToAccountNumAu;    		
+	    END IF;	    
+	    CREATE FIELD PscRqRef.CreditDetails2[J].TransferredToAccount VALUE COALESCE(TransToAccount,'0');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].TransferredToAccountLinkage VALUE 0;
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditAmount VALUE COALESCE(XferAddRqRef.XferToInfo[J].CurAmt.Amt,0.00);
+	    CREATE FIELD PscRqRef.CreditDetails2[J].UnclearedAmount VALUE 0.00;
+	    -- CMP 10.2 Defect Fix #3144
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditTranCode VALUE COALESCE(XferAddRqRef.XferToInfo[J].TrnCode,0);
+	    CREATE FIELD PscRqRef.CreditDetails2[J].ItemType VALUE COALESCE(XferAddRqRef.XferToInfo[J].ItemType,'');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].TransferredToProcApplcn VALUE 'ODS';
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditGenericField1 VALUE COALESCE(XferAddRqRef.XferToInfo[J].AuxDom,'');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditGenericField2 VALUE COALESCE(XferAddRqRef.XferToInfo[J].ExAuxDom,'');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditDescription1 VALUE COALESCE(XferAddRqRef.XferToInfo[J].Memo[1],'');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditDescription2 VALUE COALESCE(XferAddRqRef.XferToInfo[J].Memo[2],'');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditDescription3 VALUE COALESCE(XferAddRqRef.XferToInfo[J].Memo[3],'');
+	    CREATE FIELD PscRqRef.CreditDetails2[J].CreditDescription4 VALUE COALESCE(XferAddRqRef.XferToInfo[J].Memo[4],'');   
+    	
+    	SET J = J+1;
+    END WHILE;
+    
+    --Set the ProcessingStage to CTM
+	CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'CTM');
+        
+END;

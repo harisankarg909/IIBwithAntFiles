@@ -1,0 +1,27 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN
+	 CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		
+		DECLARE NAME CHARACTER InputRoot.SOAP.Body.NS:Request.Name;
+		DECLARE AGE CHARACTER InputRoot.SOAP.Body.NS:Request.Age;
+		
+		SET OutputRoot.SOAP.Body.NS:Response.Message = 'Received a request from '||NAME||' whos is of '||AGE||' years old';
+		SET OutputRoot.SOAP.Body.NS:Response.ErrorCode = 0;
+		
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;

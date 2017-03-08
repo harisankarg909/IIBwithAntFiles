@@ -1,0 +1,6 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN
+		-- If no matching message is found, don't process anything
+		RETURN FALSE;
+	END;
+

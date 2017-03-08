@@ -1,0 +1,258 @@
+CREATE PROCEDURE XferAdd_NbnzSiImtrvta1Req_AddPscRq(IN EnvRef REFERENCE,IN RsQueueName CHARACTER)
+BEGIN
+	---------------------------------------------------------------------------
+    -- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    DECLARE XferAddRqRef REFERENCE TO EnvRef;
+    CALL CcnGetClientRqRef(EnvRef, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO EnvRef;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	CALL CcnAddProviderServiceCall(EnvRef,PscRef,'SYSTEMATICS','SI','NbnzSiImtrvta10001',PscPrimaryKey,'');
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(EnvRef, 'CcnSIUuid', CcnGetPscUUID(PscRef));
+	
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-- Message set NbnzSiImtrvta10001_MS
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgSet(PscRef, 'M9U5ED4002001');
+	 CALL CcnSetPscRsMsgSet(PscRef, 'M9U5ED4002001');
+	 
+	CALL CcnSetPscRqMsgType(PscRef, 'msg_IMTRVTA1');
+    CALL CcnSetPscRqMsgFormat(PscRef, 'CWF');
+	CALL CcnSetPscRsMsgType(PscRef, 'msg_IMTRVTA1');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'CWF');
+    
+    ---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO EnvRef;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+	
+	---------------------------------------------------------------------------    
+	-- Set the provider service call endpoints    
+    ---------------------------------------------------------------------------   
+    CALL CcnSetPscEndpoints(PscRef, 'queue://NBRETAIL.VALUE.TRAN.REQUEST', RsQueueName);
+    
+    ---------------------------------------------------------------------------    
+	-- Construct Request Message    
+    ---------------------------------------------------------------------------
+	-----------------------------------------------------------------------
+	-- Add the headers
+	-----------------------------------------------------------------------
+	--Fix done as part of NZ tactical solution. If Client AppName
+	--is coming as LQM then set STDINPUT_ORGINATING_APPLIC as 'CMO'.
+	DECLARE OrigApp CHAR;
+	IF(MsgRqHdrRef.SignonRq.ClientApp.Name='LQM') Then 
+         SET OrigApp = 'CMO';
+    ELSE  
+	    SET OrigApp = COALESCE(XferAddRqRef.MsgRqHdr.SignonRq.ClientApp.Name, 'CMO');
+    END IF;
+    
+	DECLARE ClientDate CHARACTER MsgRqHdrRef.SignonRq.ClientDt;
+    SET MsgRqHdrRef.SignonRq.ClientDt = TRIM(Trailing 'Z' FROM ClientDate);
+    -- Defect #3286 : Fix to map the Org from SPName in Client request, rather than from ClientApp.Org itself
+    SET MsgRqHdrRef.SignonRq.ClientApp.Org = SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.SPName BEFORE '/');
+    
+	CALL CcnAddPscRqStdInHdr_SI(PscRqRef, MsgRqHdrRef, 'NBNZ.SI.REQUEST', '01', OrigApp);
+	--- Based on the UPR request logic for NetworkTrnInfo.Name and ClientApp.Name has been changed on 20-May-14 as below.
+	IF MsgRqHdrRef.SignonRq.ClientApp.Name='LQM' THEN		
+		SET PscRqRef.STDINPUTINPUTHEADER.STDINPUT_OPERATOR = 'CMO'; 		
+	END IF;
+
+    CALL CcnAddPscRqSecRegHdr_SI(PscRqRef, 'SI ', XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId, '0', '0'); 
+    CALL CcnAddPscRqProcId(PscRqRef, ''); 
+	--CALL CcnAddPscRqTsHeader(PscRqRef, 'MQVT', 'MQCM', 'CM', CcnGetPooledUserName_SI(EnvRef, COALESCE(MsgRqHdrRef.NetworkTrnInfo.Name, '')), 'B', 'A', 'IMPCTFI1');
+	--CMP 10.2 Defect #3225 : Changed the SOURCE_APPL_CODE from 'CM' to 'TL'
+	--to request Systematics for a Telling level TSMDA rather than admin TSMDA
+	--CALL CcnAddPscRqTsHeader(PscRqRef, 'MQVT', 'MQCM', 'TL', CcnGetPooledUserName_SI(EnvRef, COALESCE(MsgRqHdrRef.NetworkTrnInfo.Name, '')), 'B', 'A', 'IMPCTFI1');
+	
+	--- Based on the UPR request logic for PooledUseName mapping has been changed depending on ClientApp.Name 'LQM' on 20-May-14 as below.
+	IF MsgRqHdrRef.SignonRq.ClientApp.Name='LQM' THEN		
+		CALL CcnAddPscRqTsHeader(PscRqRef, 'MQVT', 'MQCM', 'TL', CcnGetPooledUserName_SI(EnvRef, 'CMO'), 'B', 'A', 'IMPCTFI1');		 		
+	ELSE
+		CALL CcnAddPscRqTsHeader(PscRqRef, 'MQVT', 'MQPT', 'PT', CcnGetPooledUserName_SI(EnvRef, COALESCE(MsgRqHdrRef.NetworkTrnInfo.Name, '')), '', 'A', 'IMPCTFI1');
+	END IF;
+	
+	
+	-----------------------------------------------------------------------
+	-- Add and populate the DAGHEADER & IMTRVTA1
+	-----------------------------------------------------------------------
+	DECLARE DagDataRef REFERENCE TO EnvRef;
+	CALL CcnAddPscRqDagBoth(PscRqRef, DagDataRef, 'IMTRVTA1', 4383);
+	
+	SET DagDataRef NAME = 'IMTRVTA1_VALUE_TRAN_AREA';
+	CREATE FIELD DagDataRef.IMTRVTA1_TTRACE_NO VALUE XferAddRqRef.PmtRefId;
+	CREATE FIELD DagDataRef.IMTRVTA1_EFF_DATE VALUE SUBSTRING(XferAddRqRef.XferFromInfo.PrcDt FROM 9 FOR 2) || --dd
+																 SUBSTRING(XferAddRqRef.XferFromInfo.PrcDt FROM 6 FOR 2) || --mm
+																 SUBSTRING(XferAddRqRef.XferFromInfo.PrcDt FROM 3 FOR 2); -- yy;
+	CREATE FIELD DagDataRef.IMTRVTA1_TRAN_DATE VALUE SUBSTRING(XferAddRqRef.MsgRqHdr.SignonRq.ClientDt FROM 9 for 2) || --dd 
+																  SUBSTRING(XferAddRqRef.MsgRqHdr.SignonRq.ClientDt FROM 6 for 2) || --mm
+																  SUBSTRING(XferAddRqRef.MsgRqHdr.SignonRq.ClientDt FROM 3 FOR 2);   --yy;
+	DECLARE TmpTime CHARACTER;
+	SET TmpTime = SUBSTRING(CAST(CURRENT_TIME AS CHARACTER) FROM 7 FOR 11);
+	DECLARE ShortTime CHARACTER;
+	SET ShortTime = LEFT(TmpTime, 2) || SUBSTRING(TmpTime FROM 4 FOR 2) || SUBSTRING(TmpTime FROM 7 FOR 2) || SUBSTRING(TmpTime FROM 10 FOR 2); 
+	
+	CREATE FIELD DagDataRef.IMTRVTA1_TRAN_TIME VALUE ShortTime;
+	CREATE FIELD DagDataRef.IMTRVTA1_ORIG_BK_BCH VALUE XferAddRqRef.MsgRqHdr.NetworkTrnInfo.BankId;
+	CREATE FIELD DagDataRef.IMTRVTA1_TRAN_CLASS VALUE 'V';
+	
+	CREATE FIELD DagDataRef.IMTRVTA1_TRAN_TYPE VALUE 'N';
+		
+	IF (COALESCE(XferAddRqRef.RecoveryTrn, '') = '1') THEN
+			SET DagDataRef.IMTRVTA1_TRAN_TYPE = 'S';
+	END IF;
+			
+	IF (COALESCE(XferAddRqRef.ReversalTrn, '') = '1') THEN
+			SET DagDataRef.IMTRVTA1_TRAN_TYPE = 'R';
+	END IF;
+	
+	CREATE FIELD DagDataRef.IMTRVTA1_FUNDS_OVERRIDE VALUE 'N';
+	IF (COALESCE(XferAddRqRef.OverrideFunds, '') = '1') THEN
+			SET DagDataRef.IMTRVTA1_FUNDS_OVERRIDE = 'Y';
+	END IF;
+	
+	-- CMP 10.2 Defect Fix #3480 : Including debit plus total number of credit
+    DECLARE Num INTEGER CARDINALITY(XferAddRqRef.XferFromInfo[]) + CARDINALITY(XferAddRqRef.XferToInfo[]);
+	CREATE FIELD DagDataRef.IMTRVTA1_NUM_TRANS VALUE Num;
+	CREATE FIELD DagDataRef.IMTRVTA1_TRAN_DETAIL;
+	
+	DECLARE NumTrans INTEGER 0;
+	DECLARE Padding CHAR SPACE(20);
+   
+	DECLARE DagIMTR1 REFERENCE TO DagDataRef.IMTRVTA1_TRAN_DETAIL[<];
+	
+	-- Debit Account Details
+	--START	
+	--externalised the field mapping to systematics for BANK_NO data mapping via CIMREF qualifier(SI_Control1).
+	DECLARE DebitControl1,DebitBankNo CHARACTER '';
+	SET DebitBankNo = SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 1 FOR 2);
+	SET DebitControl1 = COALESCE(CcnGetReferenceValue(EnvRef, 'SI_Control1', DebitBankNo, FALSE),DebitBankNo);
+	CREATE FIELD DagIMTR1.IMTRVTA1_BANK_NO VALUE DebitControl1;	
+	--END
+	CREATE FIELD DagIMTR1.IMTRVTA1_BRANCH_NO VALUE COALESCE(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 3 FOR 4),0);
+	CREATE FIELD DagIMTR1.IMTRVTA1_ACCT_NO VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId,0);			
+	
+	CREATE FIELD DagIMTR1.IMTRVTA1_ORIG_TRAN_CODE VALUE COALESCE(XferAddRqRef.XferFromInfo.TrnCode,'');
+	CREATE FIELD DagIMTR1.IMTRVTA1_ITEM_TYPE VALUE COALESCE(XferAddRqRef.XferFromInfo.ItemType,'');
+	CREATE FIELD DagIMTR1.IMTRVTA1_TRAN_AMOUNT VALUE COALESCE(XferAddRqRef.XferFromInfo.CurAmt.Amt,0);
+	CREATE FIELD DagIMTR1.IMTRVTA1_UNCL_AMOUNT VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_PARTIC VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferFromInfo.Memo[1]) FROM 1 FOR 12),'');
+	CREATE FIELD DagIMTR1.IMTRVTA1_CODE VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferFromInfo.Memo[2]) FROM 1 FOR 12),'');	
+	CREATE FIELD DagIMTR1.IMTRVTA1_REF VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferFromInfo.Memo[3]) FROM 1 FOR 12),'');	
+	
+	CREATE FIELD DagIMTR1.IMTRVTA1_SER_NO VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_TP_NAME VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferFromInfo.Memo[4])FROM 1 FOR 20),'');
+	
+	--PAT Stream 2 changes for other party account
+	IF XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentType = 'ContraAccount' THEN
+
+		CREATE FIELD DagIMTR1.IMTRVTA1_OP_BANK VALUE COALESCE(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentValue FROM 1 FOR 2),'0');   
+		CREATE FIELD DagIMTR1.IMTRVTA1_OP_BRANCH VALUE COALESCE(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentValue FROM 3 FOR 4),'0');
+		CREATE FIELD DagIMTR1.IMTRVTA1_OP_ACCT VALUE COALESCE(SUBSTRING(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentValue FROM 7 FOR 10),'0');
+		
+	ELSE
+		
+		CREATE FIELD DagIMTR1.IMTRVTA1_OP_BANK VALUE '0';   
+		CREATE FIELD DagIMTR1.IMTRVTA1_OP_BRANCH VALUE '0';
+		CREATE FIELD DagIMTR1.IMTRVTA1_OP_ACCT VALUE '0';
+		
+	END IF;
+	
+	--If condition added as part of NZ tactical solution(CR 777).For LQM the Memo[4] will be coming as empty and 
+	--IMTRVTA1_OP_NAME is set from XferAddRq.RefNum
+	IF(MsgRqHdrRef.SignonRq.ClientApp.Name='LQM')THEN
+	   CREATE FIELD DagIMTR1.IMTRVTA1_OP_NAME VALUE XferAddRqRef.RefNum;
+	ELSE   
+	-- CMP Defect #4019 : Mapped IMTRVTA1_OP_NAME to Memo[4]
+	   CREATE FIELD DagIMTR1.IMTRVTA1_OP_NAME VALUE SUBSTRING(XferAddRqRef.XferFromInfo.Memo[4] FROM 21 FOR 40);
+	END IF;
+	
+	CREATE FIELD DagIMTR1.IMTRVTA1_FEE_TYPE VALUE '';
+	CREATE FIELD DagIMTR1.IMTRVTA1_BAG_ID VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_RESP_CODE VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_ACCT_BAL VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_ACCT_BAL_SIGN VALUE '+';
+	CREATE FIELD DagIMTR1.IMTRVTA1_AVAIL_BAL VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_AVAIL_BAL_SIGN VALUE '+';
+	CREATE FIELD DagIMTR1.IMTRVTA1_LEDGER_BAL VALUE 0;
+	CREATE FIELD DagIMTR1.IMTRVTA1_LEDGER_BAL_SIGN VALUE '+';
+	CREATE FIELD DagIMTR1.IMTRVTA1_OD_LIMIT VALUE 0;
+
+	-- CMP 10.2 Defect #3480 Fix : Mapped the Credit Account Details
+	-- Credit Account Details
+	
+	CREATE NEXTSIBLING OF DagDataRef.IMTRVTA1_TRAN_DETAIL NAME 'IMTRVTA1_TRAN_DETAIL';
+	DECLARE DagIMTR2 REFERENCE TO DagDataRef.IMTRVTA1_TRAN_DETAIL[<];
+	
+	
+	--START	
+	--externalised the field mapping to systematics for BANK_NO data mapping via CIMREF qualifier(SI_Control1).
+	DECLARE CreditControl1,CreditBankNo CHARACTER '';
+	SET CreditBankNo = SUBSTRING(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 1 FOR 2);
+	SET CreditControl1 = COALESCE(CcnGetReferenceValue(EnvRef, 'SI_Control1', CreditBankNo, FALSE),CreditBankNo);
+	
+	CREATE FIELD DagIMTR2.IMTRVTA1_BANK_NO VALUE CreditControl1;
+	--END
+	CREATE FIELD DagIMTR2.IMTRVTA1_BRANCH_NO VALUE COALESCE(SUBSTRING(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent FROM 3 FOR 4),0);
+	CREATE FIELD DagIMTR2.IMTRVTA1_ACCT_NO VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctId,0);			
+	
+	CREATE FIELD DagIMTR2.IMTRVTA1_ORIG_TRAN_CODE VALUE COALESCE(XferAddRqRef.XferToInfo.TrnCode,'');
+	CREATE FIELD DagIMTR2.IMTRVTA1_ITEM_TYPE VALUE COALESCE(XferAddRqRef.XferToInfo.ItemType,'');
+	CREATE FIELD DagIMTR2.IMTRVTA1_TRAN_AMOUNT VALUE COALESCE(XferAddRqRef.XferToInfo.CurAmt.Amt,0);
+	CREATE FIELD DagIMTR2.IMTRVTA1_UNCL_AMOUNT VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_PARTIC VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferToInfo.Memo[1]) FROM 1 FOR 12),'');
+	CREATE FIELD DagIMTR2.IMTRVTA1_CODE VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferToInfo.Memo[2]) FROM 1 FOR 12),'');	
+	CREATE FIELD DagIMTR2.IMTRVTA1_REF VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferToInfo.Memo[3]) FROM 1 FOR 12),'');	
+	
+	CREATE FIELD DagIMTR2.IMTRVTA1_SER_NO VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_TP_NAME VALUE COALESCE(SUBSTRING(TRIM(XferAddRqRef.XferToInfo.Memo[4])FROM 1 FOR 20),'');
+	
+	--PAT Stream 2 changes for other party account
+	IF XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentType = 'ContraAccount' THEN
+
+		CREATE FIELD DagIMTR2.IMTRVTA1_OP_BANK VALUE COALESCE(SUBSTRING(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentValue FROM 1 FOR 2),'0');   
+		CREATE FIELD DagIMTR2.IMTRVTA1_OP_BRANCH VALUE COALESCE(SUBSTRING(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentValue FROM 3 FOR 4),'0');
+		CREATE FIELD DagIMTR2.IMTRVTA1_OP_ACCT VALUE COALESCE(SUBSTRING(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.AcctIdent.AcctIdentValue FROM 7 FOR 10),'0');
+		
+	ELSE
+		
+		CREATE FIELD DagIMTR2.IMTRVTA1_OP_BANK VALUE '0';   
+		CREATE FIELD DagIMTR2.IMTRVTA1_OP_BRANCH VALUE '0';
+		CREATE FIELD DagIMTR2.IMTRVTA1_OP_ACCT VALUE '0';
+		
+	END IF;
+	--If condition added as part of NZ tactical solution(CR 777).For LQM UPR will send Memo[4]as empty and 
+	--IMTRVTA1_OP_NAME is set from XferAddRq.RefNum
+	IF(MsgRqHdrRef.SignonRq.ClientApp.Name='LQM')THEN
+	   CREATE FIELD DagIMTR2.IMTRVTA1_OP_NAME VALUE XferAddRqRef.RefNum;
+	ELSE   
+	-- CMP Defect #4019 : Mapped IMTRVTA1_OP_NAME to Memo[4]
+	   CREATE FIELD DagIMTR2.IMTRVTA1_OP_NAME VALUE SUBSTRING(XferAddRqRef.XferToInfo.Memo[4] FROM 21 FOR 40);
+	END IF;
+	
+	CREATE FIELD DagIMTR2.IMTRVTA1_FEE_TYPE VALUE '';
+	CREATE FIELD DagIMTR2.IMTRVTA1_BAG_ID VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_RESP_CODE VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_ACCT_BAL VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_ACCT_BAL_SIGN VALUE '+';
+	CREATE FIELD DagIMTR2.IMTRVTA1_AVAIL_BAL VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_AVAIL_BAL_SIGN VALUE '+';
+	CREATE FIELD DagIMTR2.IMTRVTA1_LEDGER_BAL VALUE 0;
+	CREATE FIELD DagIMTR2.IMTRVTA1_LEDGER_BAL_SIGN VALUE '+';
+	CREATE FIELD DagIMTR2.IMTRVTA1_OD_LIMIT VALUE 0;
+	
+	--Set the ProcessingStage to SYSTEMATICS
+	CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'SYSTEMATICS');
+
+END;

@@ -1,0 +1,18 @@
+CREATE FUNCTION Create_AccountNumber (IN_VALUE CHARACTER) returns CHARACTER 
+BEGIN
+		DECLARE AccountNumber CHAR;
+		DECLARE N INTEGER;
+		DECLARE REM INTEGER;
+		SET REM = 0;
+		SET N = 0;
+	
+		SET AccountNumber = IN_VALUE;
+		SET N = length(AccountNumber);
+		SET REM = (17 - N);
+
+		WHILE (REM > 0) DO
+			SET AccountNumber = '0' || AccountNumber;
+			SET REM = REM - 1;
+		END WHILE;
+		RETURN (AccountNumber);
+END;

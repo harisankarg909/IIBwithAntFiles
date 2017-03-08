@@ -1,0 +1,33 @@
+CREATE FUNCTION BuildSuccessResponse(PscRsRef REFERENCE, EnvRef REFERENCE,ClientRsRef REFERENCE,Rfh2Ref REFERENCE) 
+	BEGIN
+  	 
+        DECLARE MQRef REFERENCE TO EnvRef.ContextInfo.Message.MQ;
+         
+        -- Convert the Incoming message to BLOB       
+		DECLARE inDataBlob BLOB ASBITSTREAM(PscRsRef ENCODING MQRef.Encoding
+			                                                 CCSID MQRef.CodedCharSetId
+			                                                 FORMAT 'CWF'
+			                                                 TYPE 'XferAddFinetGeneric_Rs'
+			                                                 SET 'XferAddFinet0001');
+		-- Parse the BLOB message to Message Type XferAddFinetANZSuccess_Rs
+		CREATE LASTCHILD OF EnvRef.SuccessMsg DOMAIN 'MRM'
+				PARSE(inDataBlob,MQRef.Encoding,MQRef.CodedCharSetId,
+				      'XferAddFinet0001','XferAddFinetANZSuccess_Rs','CWF');  
+		DECLARE inRef REFERENCE TO EnvRef.SuccessMsg.MRM.TasActEntOut;		      
+		--------------------------------------------------------------
+			-- Construct Response Message
+		--------------------------------------------------------------
+		CREATE FIELD ClientRsRef.RqUID VALUE Rfh2Ref.usr.RqUID;
+		CREATE FIELD ClientRsRef.XferRec.XferId VALUE COALESCE(inRef.TasAetOutUniqReqId,'');
+			
+		IF inRef.TasAetOutLatAvlBal <> ''  THEN		
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.BalType VALUE 'Avail';	
+			CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.CurAmt.Amt 
+						VALUE COALESCE(inRef.Sign1,'') || CAST(inRef.TasAetOutLatAvlBal AS CHARACTER); 
+		END IF;
+						
+		CREATE FIELD ClientRsRef.CSPRefId VALUE COALESCE(inRef.TasAetOutFinetJRNLNo,'');	
+		
+		DELETE FIELD EnvRef.SuccessMsg; 
+				            	                                                 
+	END;

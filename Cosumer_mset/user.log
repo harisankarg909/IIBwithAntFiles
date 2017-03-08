@@ -1,0 +1,56 @@
+Generating .xsdzip file for message set "Cosumer_mset" 
+
+Generating schema for no XML Wire format
+Generating schema using the lax option
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd"
+
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/org/tempuri/webservicemset/xsd_xsd0.mxsd"
+
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/org/tempuri/webservicemset/xsd_xsd1.mxsd"
+
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/org/xmlsoap/schemas/soap/envelope/soapenv11.mxsd"
+
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/soap.mxsd"
+
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/xsd_xsd2.mxsd"
+
+
+
+Processing File : "/Cosumer_mset/Cosumer_mset/xsd_xsd3.mxsd"
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.xsd" 
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/org/tempuri/webservicemset/xsd_xsd0.xsd" 
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/org/tempuri/webservicemset/xsd_xsd1.xsd" 
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/org/xmlsoap/schemas/soap/envelope/soapenv11.xsd" 
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/soap.xsd" 
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/xsd_xsd2.xsd" 
+
+Saving File : "/Cosumer_mset/.GeneratedSchemas/xsd_xsd3.xsd" 
+
+Saving file "/Cosumer_mset/.GeneratedSchemas/org/w3/www/xml/_1998/namespace/xml.xsd" 
+
+Processing file "/Cosumer_mset/Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.wsdl" 
+
+Saving file "/Cosumer_mset/.ModifiedWSDLs/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.wsdl" 
+
+Saving file "/Cosumer_mset/.KeywordsFile/meta-inf/keywords.txt" 
+
+Saving file "/Cosumer_mset/Cosumer_mset/messageSet.mset" 
+

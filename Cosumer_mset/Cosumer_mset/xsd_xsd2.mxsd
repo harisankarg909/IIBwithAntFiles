@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?><!--File Webservice_mset\Request.xsd, application ProviderWebService--><xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <xsd:complexType name="Request">
+    <xsd:sequence>
+      <xsd:element name="Name" type="xsd:string"/>
+      <xsd:element name="Age" type="xsd:string"/>
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:element name="Request" type="Request">
+          <xsd:annotation>
+      <xsd:appinfo source="WMQI_APPINFO">
+        <MRMessage messageDefinition="/0/Request;XSDElementDeclaration$MRObject" schemaObject="/0/Request;XSDElementDeclaration"/>
+      </xsd:appinfo>
+    </xsd:annotation>
+    </xsd:element>
+</xsd:schema>

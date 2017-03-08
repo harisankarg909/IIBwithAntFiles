@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?><!--File Webservice_mset\org\tempuri\webservicemset\Response_WSDLGenWrapper.xsd, application ProviderWebService--><xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" targetNamespace="http://tempuri.org/Webservice_mset" xmlns:tns="http://tempuri.org/Webservice_mset">
+  <xsd:include schemaLocation="../../../xsd_xsd3.mxsd"/>
+</xsd:schema>

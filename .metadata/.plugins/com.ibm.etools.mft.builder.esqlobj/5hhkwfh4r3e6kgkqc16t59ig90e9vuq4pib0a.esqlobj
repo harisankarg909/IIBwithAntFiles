@@ -1,0 +1,8 @@
+CREATE DATABASE MODULE XferAdd10_PrcTimeoutOrWarning
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- If no matching message is found, don't process anything
+		RETURN FALSE;
+	END;
+
+END MODULE;

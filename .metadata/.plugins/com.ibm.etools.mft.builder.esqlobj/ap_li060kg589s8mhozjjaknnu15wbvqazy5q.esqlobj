@@ -1,0 +1,29 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN
+		---------------------------------------------------------------------------
+	    -- Get a reference to the client request message
+		---------------------------------------------------------------------------
+		DECLARE ClientRqRef REFERENCE TO Environment;
+		CALL CcnGetClientRqRef(Environment, ClientRqRef);
+		---------------------------------------------------------------------------
+    	-- Get the client response message
+	---------------------------------------------------------------------------	
+		DECLARE ClientRsRef REFERENCE TO Environment;
+		CALL CcnGetClientRsRef(Environment, ClientRsRef);
+		DECLARE Rs REFERENCE TO ClientRsRef;
+			
+	    ---------------------------------------------------------------------------
+		-- Get a reference to the provider service call request and populate it
+		---------------------------------------------------------------------------
+	    DECLARE PscRef REFERENCE TO Environment.Provider.CallStack.ResponseReadyList.ProviderSvcCall;
+		DECLARE PscRqRef REFERENCE TO Environment;
+		CALL CcnGetPscRqRef(PscRef, PscRqRef);
+
+        -- Code to check if any Parser exception or Provider Request queue doesnt exists during Request processing
+        IF(CcnGetPscRsStatusCode(PscRqRef) <> '0') THEN
+	    	CALL CcnSetClientRsStatusFromPscRsStatus(Environment, PscRqRef);
+	    	CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+	    	PROPAGATE TO TERMINAL 'out1';
+	        RETURN FALSE;
+	    END IF;
+	END;

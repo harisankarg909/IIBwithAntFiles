@@ -1,0 +1,5 @@
+consumermsgFlow#MQ Input.queueName=SOAP.IN2
+consumermsgFlow#SOAP Request.acceptCompressedResponses=no
+consumermsgFlow#SOAP Request.hostnameChecking=no
+consumermsgFlow#SOAP Request.sslProtocol=TLS
+consumermsgFlow#SOAP Request.webServiceURL=http://localhost:7800/Webservice_msetSOAP_HTTP_Service

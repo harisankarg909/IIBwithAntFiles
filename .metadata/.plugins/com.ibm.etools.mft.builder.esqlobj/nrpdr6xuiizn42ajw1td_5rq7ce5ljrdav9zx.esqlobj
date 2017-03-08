@@ -1,0 +1,58 @@
+CREATE PROCEDURE XferAdd_FinetRsp_PrcPscRs(IN Environment REFERENCE, IN LocalEnvironment REFERENCE)
+BEGIN
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- Create the response message
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+	---------------------------------------------------------------------------
+--	DECLARE ClientRqRef REFERENCE TO Environment;
+--	CALL CcnGetClientRqRef(Environment, ClientRqRef);	
+--	DECLARE Rq REFERENCE TO ClientRqRef;
+	
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+--	DECLARE ClientRsRef REFERENCE TO Environment;
+--	CALL CcnGetClientRsRef(Environment, ClientRsRef);
+--	DECLARE Rs REFERENCE TO ClientRsRef;
+	
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	SET Environment.Client.MsgDomain = 'XML';
+	CALL CcnAddClientRs(Environment, ClientRsRef);	
+	DECLARE Rs REFERENCE TO ClientRsRef;
+	
+	--------------------------------------------------------------------------
+	-- Get a ref to provider response
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, PscRsRef);	
+		---------------------------------------------------------------------------
+    -- Get a reference to the FINET response
+    ---------------------------------------------------------------------------
+  --	CALL CcnGetPscRsRefByPscUUID(Environment,PscRsRef,CcnGetNamedCharValue(Environment,'CcnFinetUuid'));
+   	
+   	DECLARE Rfh2Ref REFERENCE TO Environment.ContextInfo.Message.MQRFH2C;
+   	
+   		-- Check for provider service call errors like timeouts or parser exceptions
+	IF(PscRsRef.Status.StatusCode <> 0) THEN
+		CALL CcnSetClientRsStatusFromPscRsStatus(Environment, PscRsRef);
+		CREATE FIELD ClientRsRef.RqUID VALUE Rfh2Ref.usr.RqUID;
+		SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';
+		RETURN;
+	END IF;
+	
+    DECLARE EnvRef REFERENCE TO Environment;
+		
+	IF PscRsRef.HeaderOut.HeaderOutType = 8 THEN
+		CALL BuildSuccessResponse(PscRsRef,EnvRef,ClientRsRef,Rfh2Ref);
+	ELSE 
+	 	CALL BuildErrorResponse(PscRsRef,EnvRef,ClientRsRef,Rfh2Ref); 
+	END IF; 
+	
+	SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';			
+	
+END;

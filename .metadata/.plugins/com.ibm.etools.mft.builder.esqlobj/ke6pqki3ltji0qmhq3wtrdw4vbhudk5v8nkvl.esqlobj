@@ -1,0 +1,23 @@
+CREATE FUNCTION Return_Month(IN MonthInNumeric CHARACTER) RETURNS CHARACTER
+BEGIN
+	
+		DECLARE Ret_Mon CHARACTER;
+		
+			SET Ret_Mon = CASE
+				WHEN  MonthInNumeric = '01' THEN 'Jan'
+				WHEN  MonthInNumeric = '02' THEN 'Feb'
+				WHEN  MonthInNumeric = '03' THEN 'Mar'					
+				WHEN  MonthInNumeric = '04' THEN 'Apr'
+				WHEN  MonthInNumeric = '05' THEN 'May'
+				WHEN  MonthInNumeric = '06' THEN 'Jun'					
+				WHEN  MonthInNumeric = '07' THEN 'Jul'
+				WHEN  MonthInNumeric = '08' THEN 'Aug'
+				WHEN  MonthInNumeric = '09' THEN 'Sep'					
+				WHEN  MonthInNumeric = '10' THEN 'Oct'
+				WHEN  MonthInNumeric = '11' THEN 'Nov'
+				WHEN  MonthInNumeric = '12' THEN 'Dec'				
+			END;
+			RETURN Ret_Mon;
+	
+	
+END;

@@ -1,0 +1,188 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+BEGIN
+  	-- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    DECLARE XferAddRqRef REFERENCE TO Environment;
+    CALL CcnGetClientRqRef(Environment, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    DECLARE ClientAppRef REFERENCE TO MsgRqHdrRef.SignonRq.ClientApp;
+    DECLARE SPName CHARACTER;
+    ---------------------------------------------------------------------------
+	  -- Get  reference to the client response message
+	---------------------------------------------------------------------------  
+    DECLARE XferAddRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRsRef(Environment, XferAddRsRef);
+    
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO Environment;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	
+	CALL CcnAddProviderServiceCall(Environment,PscRef,'FINACLE','XMLNSC','FIXML',PscPrimaryKey,'');
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(Environment, 'CcnFinacleUuid', CcnGetPscUUID(PscRef));
+	
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgType(PscRef, 'FIXML');
+    CALL CcnSetPscRqMsgFormat(PscRef, 'XMLNSC');
+    CALL CcnSetPscRsMsgType(PscRef, 'FIXML');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'XMLNSC');
+    
+    ---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO Environment;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+
+	---------------------------------------------------------------------------    
+	-- Set the provider service call endpoints    
+    ---------------------------------------------------------------------------  
+    SET SPName = XferAddRqRef.XferFromInfo.AcctRef.SPName;
+     
+    DECLARE BankId , requestQueue CHARACTER '';
+	SET BankId = COALESCE(CcnGetReferenceValue(Environment,'Finacle_BankIdent',SPName,FALSE ), '') ;
+    SET requestQueue = 'queue://PFIN.FINACLE'||BankId||'.FIXML.REQUEST.01'; 
+    CALL CcnSetPscEndpoints(PscRef, requestQueue, UDP_RsQueueName_Finacle);
+    
+    -----------------------------------------------------------------------------
+	-- Override REQUEST RESPONSE behavior to DATAGRAM
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscMep(PscRef, 'ONE_WAY');
+	
+	/* Make the output message persistant */
+	CALL CcnSetPscRqPersistent(PscRef);		
+	
+	--------------------------------------------------------------------------
+	-- Setup specific MQMD overrides required specificially by the FINET
+	--------------------------------------------------------------------------
+	DECLARE PscOverridesMqmdRef REFERENCE TO Environment;
+	CALL CcnAddPscRqMqmdOverride(PscRqRef, PscOverridesMqmdRef);
+
+	SET PscOverridesMqmdRef.ReplyToQ = UDP_RsQueueName_Finacle;
+	
+    
+   	-- Validation to check for SPNAme and Client Name	
+	IF ClientAppRef.Name IS NULL OR LENGTH(TRIM(ClientAppRef.{'Name'})) = 0 THEN
+	   	CALL CcnSetClientRsStatusRetainExisting(Environment, '1620' , '', 'Error', 'Client App Name is missing') ; 
+		DELETE FIELD XferAddRsRef.Status.ServerStatusCode;
+		CREATE FIELD XferAddRsRef.RqUID VALUE  XferAddRqRef.RqUID;
+	 	PROPAGATE TO LABEL 'CIMReply';
+
+		RETURN FALSE;
+	END IF;
+  	
+  	---------------------------------------------------------------------------
+    -- Finacle namespace declarations
+    ---------------------------------------------------------------------------
+	DECLARE NS_efs NAMESPACE 'http://www.ejb.ons.ci.infosys.com/executeFinacleScript';
+	DECLARE NS_chdr NAMESPACE 'http://www.common.ci.infosys.com';
+	DECLARE NS_cocic NAMESPACE 'http://www.cistruct.ons.ci.infosys.com';
+    
+    -- Add the Namespace declarations to the PscRqRef
+	--Start:
+	/*Below lines of code has been added to attach Namespace declarations to the PscType,as these declarations for PscType was not achievable using Ccn02 framework..
+	  This will be addressed in the upcoming version of Ccn framwork*/
+	--Detach the Provider request reference	
+	DETACH PscRqRef;	
+	--Get the reference of the Provider call request reference
+	DECLARE S_PredefinedPscRqRef REFERENCE TO Environment.Provider.CallStack.RequestReadyList.ProviderSvcCall.Rq;
+	DECLARE PscReqRef REFERENCE TO Environment;
+	
+    --Recreate the Provider Rq reference to attach the Namespace declarations
+    CREATE LASTCHILD OF S_PredefinedPscRqRef AS PscReqRef DOMAIN 'XMLNSC';
+    SET PscReqRef.NS_efs:FIXML.(XMLNSC.NamespaceDecl)xmlns:executeFinacleScript = NS_efs;
+    SET PscReqRef.NS_efs:FIXML.(XMLNSC.NamespaceDecl)xmlns:commonheader = NS_chdr;
+    SET PscReqRef.NS_efs:FIXML.(XMLNSC.NamespaceDecl)xmlns:cocic = NS_cocic;
+	-- End:
+
+   	---------------------------------------------------------------------------    
+	-- Construct Request Message    
+    ---------------------------------------------------------------------------
+    CREATE FIELD PscReqRef.NS_efs:FIXML.NS_efs:HEADER.NS_efs:REQUESTHEADER;
+    DECLARE RequestHeaderRef REFERENCE TO PscReqRef.NS_efs:FIXML.NS_efs:HEADER.NS_efs:REQUESTHEADER;
+    
+    SET RequestHeaderRef.NS_chdr:MESSAGEKEY.NS_chdr:REQUESTUUID				= XferAddRqRef.PmtRefId;
+    SET RequestHeaderRef.NS_chdr:MESSAGEKEY.NS_chdr:SERVICEREQUESTID 		= 'executeFinacleScript';
+    SET RequestHeaderRef.NS_chdr:MESSAGEKEY.NS_chdr:SERVICEREQUESTVERSION 	= 'VER1';
+    SET RequestHeaderRef.NS_chdr:MESSAGEKEY.NS_chdr:CHANNELID 				= ClientAppRef.Name;
+    SET RequestHeaderRef.NS_chdr:REQUESTMESSAGEINFO.NS_chdr:BANKID 			= BankId;  
+    SET RequestHeaderRef.NS_chdr:REQUESTMESSAGEINFO.NS_chdr:TIMEZONE		= '';  
+    SET RequestHeaderRef.NS_chdr:REQUESTMESSAGEINFO.NS_chdr:ENTITYID		= '';  
+    SET RequestHeaderRef.NS_chdr:REQUESTMESSAGEINFO.NS_chdr:ENTITYTYPE		= '';
+    SET RequestHeaderRef.NS_chdr:REQUESTMESSAGEINFO.NS_chdr:ARMCORRELATIONID= '';
+    SET RequestHeaderRef.NS_chdr:REQUESTMESSAGEINFO.NS_chdr:MESSAGEDATETIME = CAST(MsgRqHdrRef.SignonRq.ClientDt AS TIMESTAMP FORMAT 'I') ;
+    
+    CREATE FIELD PscReqRef.NS_efs:FIXML.NS_efs:BODY.NS_efs:executeFinacleScriptREQUEST;
+    DECLARE executeFinacleScriptRef REFERENCE TO PscReqRef.NS_efs:FIXML.NS_efs:BODY.NS_efs:executeFinacleScriptREQUEST;
+    SET executeFinacleScriptRef.NS_efs:EXECUTEFINACLESCRIPTINPUTVO.NS_cocic:REQUESTID = 'TAS_TransactionPosting.scr';
+	
+	CREATE FIELD PscReqRef.NS_efs:FIXML.NS_efs:BODY.NS_efs:executeFinacleScriptREQUEST.NS_efs:EXECUTEFINACLESCRIPT_CUSTOMDATA;
+	DECLARE custDataRef REFERENCE TO executeFinacleScriptRef.NS_efs:EXECUTEFINACLESCRIPT_CUSTOMDATA;
+	
+	SET custDataRef.TPST.TranType = 'T';
+	SET custDataRef.TPST.TranSubType = 'CI';
+	SET custDataRef.TPST.ChannelId = ClientAppRef.Name;
+	-- Debit Leg mapping
+	SET custDataRef.TPST.TDT[1].(XMLNSC.Attribute)isMultiRec = 'Y';
+	SET custDataRef.TPST.TDT[1].CrDrFlag = 'D';
+	IF (XferAddRqRef.LienAction = 'Release') THEN
+		SET custDataRef.TPST.TDT[1].LIENACTION = 'Release';
+		SET custDataRef.TPST.TDT[1].LIENID = XferAddRqRef.LienId;
+	END IF;
+	IF (XferAddRqRef.OverrideFunds = '1') THEN
+		SET custDataRef.TPST.TDT[1].GrantTodFlg = 'Y';
+	ELSEIF (XferAddRqRef.OverrideFunds = '0') THEN
+		SET custDataRef.TPST.TDT[1].GrantTodFlg = 'N';
+	ELSE
+		SET custDataRef.TPST.TDT[1].GrantTodFlg = '';
+	END IF;
+	SET custDataRef.TPST.TDT[1].AcctNumber = XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;
+	SET custDataRef.TPST.TDT[1].AcctCCY = XferAddRqRef.XferFromInfo.AcctRef.AcctCurCode;
+	SET custDataRef.TPST.TDT[1].SolId = XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent;
+	SET custDataRef.TPST.TDT[1].ValueDate = XferAddRqRef.XferFromInfo.PrcDt;
+	SET custDataRef.TPST.TDT[1].AmountValue = XferAddRqRef.XferFromInfo.CurAmt.Amt;
+	SET custDataRef.TPST.TDT[1].TranCCY = XferAddRqRef.XferFromInfo.CurAmt.CurCode.Value;
+	SET custDataRef.TPST.TDT[1].Particular = XferAddRqRef.XferFromInfo.Memo[1];
+	SET custDataRef.TPST.TDT[1].RefNum = XferAddRqRef.RefNum;
+	SET custDataRef.TPST.TDT[1].Particular2 = XferAddRqRef.XferFromInfo.Memo[2];
+	SET custDataRef.TPST.TDT[1].TranCode = XferAddRqRef.XferFromInfo.TrnCode;
+	SET custDataRef.TPST.TDT[1].TranRmks = XferAddRqRef.XferFromInfo.Memo[3];
+	-- Credit Leg mapping
+	SET custDataRef.TPST.TDT[2].(XMLNSC.Attribute)isMultiRec = 'Y';
+	SET custDataRef.TPST.TDT[2].CrDrFlag = 'C';
+	IF (XferAddRqRef.LienAction = 'Add') THEN
+		SET custDataRef.TPST.TDT[2].LIENACTION = 'Add';
+		SET custDataRef.TPST.TDT[2].LIENEXPIRY = XferAddRqRef.LienExpDt;
+		SET custDataRef.TPST.TDT[2].LIENRSNCODE = XferAddRqRef.LienReasonCode;
+	END IF;
+	
+	SET custDataRef.TPST.TDT[2].AcctNumber = XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctId;
+	SET custDataRef.TPST.TDT[2].AcctCCY = XferAddRqRef.XferToInfo.AcctRef.AcctCurCode;
+	SET custDataRef.TPST.TDT[2].SolId = XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent;
+	SET custDataRef.TPST.TDT[2].ValueDate = COALESCE(XferAddRqRef.XferToInfo.PrcDt,XferAddRqRef.XferFromInfo.PrcDt);
+	SET custDataRef.TPST.TDT[2].AmountValue = XferAddRqRef.XferToInfo.CurAmt.Amt;
+	SET custDataRef.TPST.TDT[2].TranCCY = XferAddRqRef.XferToInfo.CurAmt.CurCode.Value;
+	SET custDataRef.TPST.TDT[2].Particular = XferAddRqRef.XferToInfo.Memo[1];
+	SET custDataRef.TPST.TDT[2].RefNum = XferAddRqRef.RefNum;
+	SET custDataRef.TPST.TDT[2].Particular2 = XferAddRqRef.XferToInfo.Memo[2];
+	SET custDataRef.TPST.TDT[2].TranCode = XferAddRqRef.XferToInfo.TrnCode;
+	SET custDataRef.TPST.TDT[2].TranRmks = XferAddRqRef.XferToInfo.Memo[3];
+	
+	DECLARE ClientQualifier CHARACTER '';
+	
+	SET custDataRef.TPST.ClientQualifier = XferAddRqRef.RqUID;
+	
+	IF ((Environment.ContextInfo.Message.MsgContext.ClientQualifier IS NOT NULL) AND (TRIM(Environment.ContextInfo.Message.MsgContext.ClientQualifier) <> '')) THEN
+		SET custDataRef.TPST.ClientQualifier = XferAddRqRef.RqUID || ':' || Environment.ContextInfo.Message.MsgContext.ClientQualifier;
+	END IF;
+  	
+	RETURN TRUE;
+END;	
+

@@ -1,0 +1,35 @@
+CREATE FUNCTION BuildErrorResponse(PscRsRef REFERENCE, EnvRef REFERENCE,ClientRsRef REFERENCE,Rfh2Ref REFERENCE) 
+	BEGIN
+		
+    	DECLARE MQRef REFERENCE TO EnvRef.ContextInfo.Message.MQ;
+    	
+        -- Convert the Incoming message to BLOB             
+		DECLARE inDataBlob BLOB ASBITSTREAM(PscRsRef ENCODING MQRef.Encoding
+			                                                 CCSID MQRef.CodedCharSetId
+			                                                 FORMAT 'CWF'
+			                                                 TYPE 'XferAddFinetGeneric_Rs'
+			                                                 SET 'XferAddFinet0001');
+        -- Parse the BLOB message to Message Type XferAddFinetANZFailure_Rs			                                                 
+		CREATE LASTCHILD OF EnvRef.FailedMsg DOMAIN 'MRM'
+				PARSE(inDataBlob,MQRef.Encoding,MQRef.CodedCharSetId,
+				      'XferAddFinet0001','XferAddFinetANZFailure_Rs','CWF');  
+
+		DECLARE inRef REFERENCE TO EnvRef.FailedMsg.MRM.OutputError;         
+  
+        CREATE FIELD ClientRsRef.RqUID VALUE Rfh2Ref.usr.RqUID;
+        --- Build the status block.
+		CALL CcnSetClientRsStatusFromProvider(EnvRef, 'FINET',TRIM(LEADING '0' FROM CAST(inRef.ErrMsgNo AS CHARACTER)),'','' );
+        DECLARE StatusRef REFERENCE TO ClientRsRef.Status;
+        SET StatusRef.ServerStatusCode 	= NULL;
+        SET StatusRef.Severity 			= 'Error';
+        SET StatusRef.StatusDesc 		= inRef.ErrReason;
+    
+        CREATE LASTCHILD OF StatusRef NAME 'AdditionalStatus';
+		DECLARE AddStatusRef REFERENCE TO StatusRef.AdditionalStatus;
+		CREATE FIELD AddStatusRef.StatusCode  VALUE TRIM(LEADING '0' FROM CAST(inRef.ErrMsgNo AS CHARACTER));
+		CREATE FIELD AddStatusRef.Severity  VALUE 'Error';
+				
+		DELETE FIELD EnvRef.FailedMsg;
+ 		
+			                                                 
+	END;

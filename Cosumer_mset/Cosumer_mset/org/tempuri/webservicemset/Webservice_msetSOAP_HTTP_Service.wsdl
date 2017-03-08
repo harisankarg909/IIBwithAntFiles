@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><!--File Webservice_mset\org\tempuri\webservicemset\Webservice_msetService.wsdl, application ProviderWebService--><wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" name="Webservice_mset" targetNamespace="http://tempuri.org/Webservice_mset" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://tempuri.org/Webservice_mset" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <wsdl:documentation>
+    <wsdl:appinfo source="WMQI_APPINFO">
+      <MRWSDLAppInfo imported="true">
+        <binding hasEncoding="false" imported="true" name="Webservice_msetSOAP_HTTP_Binding" originalBindingStyle="document"/>
+      </MRWSDLAppInfo>
+    </wsdl:appinfo>
+  </wsdl:documentation>
+  
+  <wsdl:types>
+    <xsd:schema targetNamespace="http://tempuri.org/Webservice_mset" xmlns:mrm="http://tempuri.org/Webservice_mset">
+      <xsd:include schemaLocation="xsd_xsd0.mxsd"/>
+      <xsd:include schemaLocation="xsd_xsd1.mxsd"/>
+    </xsd:schema>
+  </wsdl:types>
+  <wsdl:message name="getName_in">
+    <wsdl:part element="tns:Request" name="Request"/>
+  </wsdl:message>
+  <wsdl:message name="getName_out">
+    <wsdl:part element="tns:Response" name="Response"/>
+  </wsdl:message>
+  <wsdl:message name="getName_fault1">
+    <wsdl:part element="tns:Request" name="Request"/>
+  </wsdl:message>
+  <wsdl:portType name="Webservice_msetPortType">
+    <wsdl:operation name="getName">
+      <wsdl:input message="tns:getName_in" name="getName_Input"/>
+      <wsdl:output message="tns:getName_out" name="getName_Output"/>
+      <wsdl:fault message="tns:getName_fault1" name="getName_Fault"/>
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="Webservice_msetSOAP_HTTP_Binding" type="tns:Webservice_msetPortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="getName">
+      <soap:operation soapAction=""/>
+      <wsdl:input name="getName_Input">
+        <soap:body parts="Request" use="literal"/>
+      </wsdl:input>
+      <wsdl:output name="getName_Output">
+        <soap:body parts="Response" use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="getName_Fault">
+        <soap:fault name="getName_Fault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="Webservice_msetSOAP_HTTP_Service">
+    <wsdl:port binding="tns:Webservice_msetSOAP_HTTP_Binding" name="Webservice_msetSOAP_HTTP_Port">
+      <soap:address location="http://localhost:7800/Webservice_msetSOAP_HTTP_Service"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

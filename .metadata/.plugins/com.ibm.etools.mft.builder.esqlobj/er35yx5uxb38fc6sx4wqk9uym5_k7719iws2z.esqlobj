@@ -1,0 +1,41 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN		
+		---------------------------------------------------------------------------
+	    -- Get a reference to the request message
+	    ---------------------------------------------------------------------------
+	    DECLARE XferAddRqRef REFERENCE TO Environment;
+	    CALL CcnGetClientRqRef(Environment, XferAddRqRef);
+	    DECLARE SPNameRef REFERENCE TO XferAddRqRef.XferFromInfo.AcctRef.SPName;
+	    ---------------------------------------------------------------------------
+	    -- Get  reference to the client response message
+	    ---------------------------------------------------------------------------  
+		DECLARE XferAddRsRef REFERENCE TO Environment;
+		CALL CcnGetClientRsRef(Environment, XferAddRsRef);
+	    
+	    IF ((SPNameRef = '') OR (SPNameRef IS NULL)) THEN -- If SPname not found in the Input Message
+			CALL CcnSetClientRsStatusRetainExisting(Environment, '1620' , '', 'Error', 'No SPName Found') ;     
+        	DELETE FIELD XferAddRsRef.Status.ServerStatusCode;
+        	CREATE FIELD XferAddRsRef.RqUID VALUE  XferAddRqRef.RqUID;
+       	 	CREATE FIELD LocalEnvironment.Destination.RouterList.DestinationData[<].labelname VALUE 'CIMReply';
+			RETURN TRUE;
+	    END IF;
+	    -- Retrieve from DB based on SPNAME REF
+	    DECLARE LabelName CHARACTER '';
+		SET LabelName = CcnGetReferenceValue(Environment,'CPR_SPName',SPNameRef,FALSE);
+	    IF ((LabelName = '') OR (LabelName IS NULL)) THEN -- Invalid SPname in the Input Message
+			CALL CcnSetClientRsStatusRetainExisting(Environment, '1360' , '', 'Error', 'SPName Invalid') ;     
+        	DELETE FIELD XferAddRsRef.Status.ServerStatusCode;
+        	CREATE FIELD XferAddRsRef.RqUID VALUE  XferAddRqRef.RqUID;
+       	 	CREATE FIELD LocalEnvironment.Destination.RouterList.DestinationData[<].labelname VALUE 'CIMReply';
+			RETURN TRUE;
+		END IF;	
+		-- Check for CACHE provider.
+		-- EODInd is 1 for CTM and 0 for CACHE provider
+		IF ((LabelName = 'CTM') AND (XferAddRqRef.EODInd = '1')) THEN  
+			SET LabelName = 'CACHE';
+		END IF;	
+	    
+		CREATE FIELD LocalEnvironment.Destination.RouterList.DestinationData[<].labelname VALUE LabelName;
+		RETURN TRUE;
+	END;
+

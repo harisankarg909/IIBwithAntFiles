@@ -1,0 +1,165 @@
+CREATE PROCEDURE XferAdd_FinetReq_AddPscRq(IN EnvRef REFERENCE,IN RsQueueName CHARACTER,IN LocalEnvironment REFERENCE)
+BEGIN
+   -- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    DECLARE XferAddRqRef REFERENCE TO EnvRef;
+    CALL CcnGetClientRqRef(EnvRef, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    DECLARE FinetRqQueueName CHAR;
+    
+    ---------------------------------------------------------------------------
+	  -- Get  reference to the client response message
+	---------------------------------------------------------------------------  
+    DECLARE XferAddRsRef REFERENCE TO EnvRef;
+	CALL CcnGetClientRsRef(EnvRef, XferAddRsRef);
+    
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO EnvRef;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	
+	CALL CcnAddProviderServiceCall(EnvRef,PscRef,'FINET','FIXED','XferAddFinet0001',PscPrimaryKey,'');
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(EnvRef, 'CcnFinetUuid', CcnGetPscUUID(PscRef));
+	
+	--- Code to identify the Message Type(XferAddFinetRq1 or XferAddFinetRq2) from CIM Ref table using incoming Message field 
+	DECLARE RequestType CHAR;
+	DECLARE RqHeaderTransCode CHAR ;
+	
+	SET RqHeaderTransCode = CcnGetReferenceValue(EnvRef,'FINET_HDRTRNCODE',(XferAddRqRef.XferFromInfo.TrnCode||XferAddRqRef.XferToInfo.TrnCode),FALSE);
+	
+	IF RqHeaderTransCode = '' OR RqHeaderTransCode IS NULL  THEN 
+		CALL CcnSetClientRsStatusRetainExisting(EnvRef, '1620' , '', 'Error', 'Invalid Tran Code. ') ; 
+		DELETE FIELD XferAddRsRef.Status.ServerStatusCode;
+		CREATE FIELD XferAddRsRef.RqUID VALUE  XferAddRqRef.RqUID;
+		CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'ValidationError');
+		RETURN ;
+	END IF;		
+	SET RequestType = CcnGetReferenceValue(EnvRef,'FINET_REQTYPE',RqHeaderTransCode,FALSE);
+	
+		
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-- Message set -- XferAddFinet0001_MS
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgSet(PscRef, 'LCGAP98002001');
+	CALL CcnSetPscRsMsgSet(PscRef, 'LCGAP98002001');
+	
+	-- Here based on Request Type different Message Type is assigned
+
+	
+	IF RequestType = '01' THEN
+		CALL CcnSetPscRqMsgType(PscRef, 'XferAddFinetRq1');
+	ELSEIF RequestType = '02' THEN
+ 		CALL CcnSetPscRqMsgType(PscRef, 'XferAddFinetRq2');
+	ELSEIF  RequestType = '03' THEN
+ 		CALL CcnSetPscRqMsgType(PscRef, 'XferAddFinetRq3');	
+	END IF;	
+    
+    CALL CcnSetPscRqMsgFormat(PscRef, 'CWF');
+	CALL CcnSetPscRsMsgType(PscRef, 'XferAddFinetGeneric_Rs');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'CWF');
+    
+    ---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO EnvRef;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+
+	---------------------------------------------------------------------------    
+	-- Set the provider service call endpoints    
+    ---------------------------------------------------------------------------  
+    
+    DECLARE countryStructureRef REFERENCE TO XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData; 
+    DECLARE FinetCountry CHARACTER;
+    DECLARE SPName CHARACTER;
+    DECLARE ClientAppRef REFERENCE TO XferAddRqRef.MsgRqHdr.SignonRq.ClientApp;
+    
+    SET SPName = XferAddRqRef.XferFromInfo.AcctRef.SPName;
+    SET FinetCountry = UPPER(SUBSTRING(SPName FROM 1 FOR 2));
+   
+   	SET FinetRqQueueName = 'queue://PFNT.FINET' || FinetCountry || '.CMPASIA.ENTRIES.REQUEST.01';
+      
+    CALL CcnSetPscEndpoints(PscRef, FinetRqQueueName, RsQueueName);
+    
+    -----------------------------------------------------------------------------
+	-- Override REQUEST RESPONSE behavior to DATAGRAM
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscMep(PscRef, 'ONE_WAY');	
+	
+	/* Make the output message persistant */
+	CALL CcnSetPscRqPersistent(PscRef);	
+    
+   	-- Validation to check for SPNAme and Client Name	
+	IF ClientAppRef.Name IS NULL OR LENGTH(TRIM(ClientAppRef.{'Name'})) = 0 THEN
+	   	CALL CcnSetClientRsStatusRetainExisting(EnvRef, '1620' , '', 'Error', 'Invalid Client App Name') ; 
+		DELETE FIELD XferAddRsRef.Status.ServerStatusCode;
+		CREATE FIELD XferAddRsRef.RqUID VALUE  XferAddRqRef.RqUID;
+		CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'ValidationError');
+		RETURN ;
+	END IF;
+  
+   	---------------------------------------------------------------------------    
+	-- Construct Request Message    
+    ---------------------------------------------------------------------------
+   	CREATE LASTCHILD OF PscRqRef Name 'HeaderIn';
+   	DECLARE HeaderInRef REFERENCE TO PscRqRef.HeaderIn;
+   	DECLARE XferFromInfoRefPsc REFERENCE TO PscRqRef.XferFromInfo;
+   	
+   	SET HeaderInRef.HeaderLeading = '000';
+	SET HeaderInRef.HeaderInSeg   = '**';
+	SET HeaderInRef.HeaderInFiller = 'H';
+	
+	DECLARE Teller_No CHAR ;
+	
+	SET Teller_No = CcnGetReferenceValue(EnvRef,'TELLER_NO',(XferAddRqRef.XferFromInfo.AcctRef.SPName||'/'||ClientAppRef.Name),FALSE);
+	
+	SET HeaderInRef.HeaderInTeller = Teller_No;
+	
+	SET HeaderInRef.HeaderInTranCode = RqHeaderTransCode;
+
+	SET HeaderInRef.HeaderInFlag1 = 0;
+	SET HeaderInRef.HeaderInMultiGRP = 0;
+	SET HeaderInRef.HeaderInMuttiJNRL = 0;
+   	
+   	-- CALL the function Based on TrnCode received in the Incoming message
+   	IF RequestType = '01' THEN
+  		CALL CreateRequestType1(XferAddRqRef,PscRqRef);
+   	ELSEIF RequestType = '02' THEN
+   		CALL CreateRequestType2(XferAddRqRef,PscRqRef); 
+   	ELSEIF RequestType = '03' THEN
+   		CALL CreateRequestType3(XferAddRqRef,PscRqRef); 	
+   	END IF;
+   	
+    --------------------------------------------------------------------------
+	-- Setup specific MQMD overrides required specificially by the FINET
+	--------------------------------------------------------------------------
+	DECLARE PscOverridesMqmdRef REFERENCE TO EnvRef;
+	CALL CcnAddPscRqMqmdOverride(PscRqRef, PscOverridesMqmdRef);
+
+	SET PscOverridesMqmdRef.ReplyToQ = RsQueueName;
+    
+   	--------------------------------------------------------------------------
+	-- Setup specific RFH2 overrides required specificially by the FINET
+	--------------------------------------------------------------------------
+    
+    DECLARE OverrideMqRfh2Ref REFERENCE TO EnvRef;
+    CALL CcnAddPscRqMqRfh2Override(PscRqRef, OverrideMqRfh2Ref);
+    
+    SET OverrideMqRfh2Ref.usr.ConsumerReplyToQMgr =EnvRef.ContextInfo.Message.MQ.ReplyToQMgr;
+    SET OverrideMqRfh2Ref.usr.ConsumerReplyToQueue = EnvRef.ContextInfo.Message.MQ.ReplyToQ;
+    SET OverrideMqRfh2Ref.usr.ConsumerOrigMsgId = CAST(EnvRef.ContextInfo.Message.ReplyId AS BLOB);    
+    
+    SET OverrideMqRfh2Ref.usr.RqUID = XferAddRqRef.RqUID;
+    SET OverrideMqRfh2Ref.usr.XferId = XferAddRqRef.PmtRefId;
+     	
+    --Set the ProcessingStage to FINET
+	CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'FINET'); 	
+   	
+	
+END;

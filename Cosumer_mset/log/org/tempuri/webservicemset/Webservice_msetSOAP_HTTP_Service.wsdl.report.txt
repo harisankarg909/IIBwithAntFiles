@@ -1,0 +1,31 @@
+
+
+Importing file: \Webservice_msetSOAP_HTTP_Service.wsdl
+
+BIP0224W The message set has no XML Wire Format layer defined. Only the logical information will appear in the model.
+The WSDL import will proceed with bindings Webservice_msetSOAP_HTTP_Binding.
+Creating wsdl schema document for RemoteFiles/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd.
+Parsing wsdl binding {http://tempuri.org/Webservice_mset}Webservice_msetSOAP_HTTP_Binding.
+Parsing wsdl binding input getName.
+Parsing wsdl binding output getName.
+Parsing wsdl binding fault getName_Fault.
+Processing doc style for operation getName.
+Populating WSDL schema Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd.
+Removing unnecessary import statement with namespace Webservice_msetSOAP_HTTP_Service?xsd=xsd3 from schema Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd.  This statement was not resolved and is never used.
+Removing unnecessary import statement with namespace Webservice_msetSOAP_HTTP_Service?xsd=xsd2 from schema Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd.  This statement was not resolved and is never used.
+Removing unnecessary import statement with namespace xsd_xsd1.mxsd from schema Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd.  This statement was not resolved and is never used.
+Removing unnecessary import statement with namespace xsd_xsd0.mxsd from schema Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd.  This statement was not resolved and is never used.
+Creating file Cosumer_mset/org/tempuri/webservicemset/Webservice_msetSOAP_HTTP_Service.mxsd in the workspace.
+Creating file Cosumer_mset/org/tempuri/webservicemset/xsd_xsd0.mxsd in the workspace.
+Creating file Cosumer_mset/xsd_xsd2.mxsd in the workspace.
+Creating file Cosumer_mset/org/tempuri/webservicemset/xsd_xsd1.mxsd in the workspace.
+Creating file Cosumer_mset/xsd_xsd3.mxsd in the workspace.
+Copying source WSDL Webservice_msetSOAP_HTTP_Service?wsdl to Webservice_msetSOAP_HTTP_Service.wsdl.
+
+Elapsed time processing this message definition file: 1.975 seconds
+Number of warnings for this message definition file: 1
+
+
+Number of files processed: 1
+
+

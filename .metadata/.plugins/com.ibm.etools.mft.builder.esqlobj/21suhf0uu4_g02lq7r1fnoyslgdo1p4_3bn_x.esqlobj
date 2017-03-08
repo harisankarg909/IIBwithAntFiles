@@ -1,0 +1,100 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+BEGIN
+	
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- General Processing - GP
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-----------------------------------------------------------------------
+	-- Populate the environment tree 
+	-----------------------------------------------------------------------
+	CALL CcnFlowInit(Environment, Root, C_SERVICENAME, C_SERVICEVER, C_FLOWNAME, C_FLOWVER, '01');
+	
+	-----------------------------------------------------------------------
+	-- Add details about the code the message flow uses
+	-----------------------------------------------------------------------
+	IF(CcnFlowInit_AreComponentsDefined() = FALSE) THEN
+	    CcnCOMPONENTS_INIT: BEGIN ATOMIC
+            IF(CcnFlowInit_AreComponentsDefined() = FALSE) THEN
+                CALL XferAdd_FlowInit_AddComponentDetails();
+                CALL XferAdd_XferAddMdzRqRs_FlowInit_AddComponentDetails();
+                CALL XferAdd_PctmOdsMtrfWrsp0200RqRs_FlowInit_AddComponentDetails();
+                CALL XferAdd_NbnzSiImtrvta1RqRs_FlowInit_AddComponentDetails();
+                CALL XferAdd_MantecRqRs_FlowInit_AddComponentDetails();
+                CALL XferAdd_XferAddFinetRqRs_FlowInit_AddComponentDetails();
+                CALL XferAdd_XferAddCacheRqRs_FlowInit_AddComponentDetails();
+                CALL CcnFlowInit_AddComponents_MepOutIn();
+                CALL CcnFlowInit_AddComponents_Finalise();              
+            END IF;
+	    END CcnCOMPONENTS_INIT;
+    END IF;
+	
+	-----------------------------------------------------------------------
+    -- Process the client applications request message
+    -----------------------------------------------------------------------
+    CALL CcnFlowInit_SetClientMsgSetDetails(Environment, '', C_MSGTYPERQ, C_MSGTYPERS, 'XML', 'CWF', '');
+    --CALL CcnFlowInit_SetClientMsgSetDetails(Environment, '', C_MSGTYPERQ, C_MSGTYPERS, '', '', '');
+    CALL CcnFlowInit_ParseClientRq(Environment, Root, FALSE, FALSE);
+    
+    -----------------------------------------------------------------------
+    -- Message flow admin requests don't contain any business service data 
+    -- so if we have received an admin request log it and resume processing
+    -- at the next node on the normal path
+    -----------------------------------------------------------------------
+    
+    IF(CcnIsAdminRqMsg(Environment) = TRUE) THEN
+        -- Finalise the message flow initialisation
+        CALL CcnFlowInit_RqIn_Finalise(Environment, Root);
+
+        -- Do not propagate as admin request processing is complete and
+        -- there is nothing more to be done
+        RETURN FALSE;
+    END IF;
+
+    
+    --=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    -- Business Service Specific Processing - BSSP
+    --=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    ---------------------------------------------------------------------------
+    -- Get a reference to the request message
+    ---------------------------------------------------------------------------    
+    DECLARE XferAddRqRef REFERENCE TO Environment;
+    CALL CcnGetClientRqRef(Environment, XferAddRqRef);    
+    
+     ---------------------------------------------------------------------------
+	    -- Add reference to the client response message
+	---------------------------------------------------------------------------  
+	DECLARE XferAddRsRef REFERENCE TO Environment;
+	CALL CcnAddClientRs(Environment, XferAddRsRef);
+    ---------------------------------------------------------------------------
+    -- Add the business service message information to our context info
+    ---------------------------------------------------------------------------
+   	DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+	DECLARE ClientHdrRow ROW;
+	    
+		SET ClientHdrRow.ClientAppName 			= MsgRqHdrRef.SignonRq.ClientApp.Name;
+		SET ClientHdrRow.ClientAppVersion		= MsgRqHdrRef.SignonRq.ClientApp.Version;
+		SET ClientHdrRow.ClientOrg				= MsgRqHdrRef.SignonRq.ClientApp.Org;
+    
+    -- CMP 10.2 Defect #3692 : As requested by CPR Testing team, fix applied to improve tracing of transactions
+    -- Mandatory element check
+	 IF ((XferAddRqRef.PmtRefId IS NULL) OR (XferAddRqRef.PmtRefId=' '))THEN
+	     CALL CcnSetClientRsStatusRetainExisting(Environment, '1020' , '', 'Error', 'Required Element Not Included') ;     
+	     DELETE FIELD XferAddRsRef.Status.ServerStatusCode;
+	     CREATE FIELD XferAddRsRef.RqUID VALUE  XferAddRqRef.RqUID;
+	     PROPAGATE TO LABEL 'CIMReply';
+		 RETURN TRUE;    	
+	  END IF;
+    
+    -- Message related context information
+    DECLARE UniqueId CHAR XferAddRqRef.RqUID;
+    -- CMP 10.2 Defect #3692 : As requested by CPR Testing team, fix applied to improve tracing of transactions
+    DECLARE ClientRefId CHAR COALESCE(XferAddRqRef.PmtRefId,'');
+    DECLARE ClientUserId CHAR CcnGetClientUserId(MsgRqHdrRef);
+    CALL CcnFlowInit_MessageIdsAndKeys(Environment, UniqueId, ClientRefId, ClientRefId, ClientUserId);
+    
+    -- Client related context information
+    CALL CcnFlowInit_MessageContext(Environment, MsgRqHdrRef, '', Root);  
+    CALL CcnFlowInit_RqIn_Finalise(Environment, Root);
+          
+    RETURN TRUE;
+    END;

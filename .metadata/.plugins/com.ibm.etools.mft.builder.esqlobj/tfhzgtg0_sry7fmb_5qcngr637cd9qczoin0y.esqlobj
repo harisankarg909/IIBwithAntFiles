@@ -1,0 +1,98 @@
+CREATE PROCEDURE XferAdd_NbnzSiImtrvta1Rsp_PrcPscRs(IN Environment REFERENCE, IN LocalEnvironment REFERENCE)
+BEGIN
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- Create the response message
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+	---------------------------------------------------------------------------
+	DECLARE ClientRqRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, ClientRqRef);	
+	--DECLARE Rq REFERENCE TO ClientRqRef;
+	
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRsRef(Environment, ClientRsRef);
+	DECLARE Rs REFERENCE TO ClientRsRef;
+	
+	--------------------------------------------------------------------------
+	-- Get a ref to provider response
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetPscRsRefFirst(Environment, PscRsRef);
+	
+	---------------------------------------------------------------------------
+    -- Get a reference to SI response
+    ---------------------------------------------------------------------------
+   	CALL CcnGetPscRsRefByPscUUID(Environment,PscRsRef,CcnGetNamedCharValue(Environment,'CcnSIUuid'));
+   	
+	---------------------------------------------------------------------------
+	-- Check the result of the IMTRVTA1 If the call failed then
+	--  set the status code accordingly
+	---------------------------------------------------------------------------
+	-- Check for provider service call errors like timeouts or parser exceptions
+	IF(CcnGetPscRsStatusCode(PscRsRef) <> '0') THEN
+		CALL CcnSetClientRsStatusFromPscRsStatus(Environment, PscRsRef);
+		SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';
+		RETURN;
+	END IF;
+   	
+   	DECLARE IMTRVTA1Ref REFERENCE TO PscRsRef.IMTRVTA1.IMTRVTA1_VALUE_TRAN_AREA;
+	
+	DECLARE TsmdaFldPfx CHAR 'TSMDA_';
+	DECLARE TsmdaCheckRef REFERENCE TO PscRsRef.TSMDA.TSMDATL_MDA_AREA;
+	IF(LASTMOVE(TsmdaCheckRef)) THEN
+		SET TsmdaFldPfx = 'TSMDATL_';
+	END IF;
+	
+	IF (FIELDNAME(PscRsRef) = 'msg_IMTRVTA1') THEN
+		
+		IF	((FIELDNAME(PscRsRef.TSMDA) = 'TSMDA')
+		AND	 (PscRsRef.TSMDA.{TsmdaFldPfx || 'MDA_AREA'}.{TsmdaFldPfx || 'MDA_STEM'}.{TsmdaFldPfx || 'MDA_HI_SEVERITY_CODE'}) <> 'I') THEN
+			DECLARE InTSMDAInfoRef  REFERENCE TO PscRsRef.TSMDA.{TsmdaFldPfx || 'MDA_AREA'};
+			--- Map the TSMDA error to its IFX equiv.
+			CALL SetClientRsStatusFrmPvrSI(Environment, InTSMDAInfoRef, TsmdaFldPfx);
+			CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+			--- If translated status code is 1420, need to override this to 1120 as the
+			--- host response code was the same for a card number search (SALI msg), thus 1120
+			--- makes the status more generic and meets mytell requirement in being able
+			--- to work with the two different variations eg card search vs name search.
+			IF (ClientRsRef.Status.StatusCode = '1420') THEN
+				SET ClientRsRef.Status.StatusCode = '1120';
+				SET ClientRsRef.Status.StatusDesc = 'No Records Match Selection Criteria';
+				SET ClientRsRef.Status.Severity = 'Info';
+			END IF;
+			SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';			
+			RETURN;		
+		ELSE
+			
+			IF(FIELDNAME(PscRsRef.IMTRVTA1) = 'IMTRVTA1') THEN 
+				
+				CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+				DECLARE I INTEGER 1;
+				DECLARE J INTEGER;
+				SET J = CARDINALITY(ClientRqRef.XferToInfo[]);			
+				WHILE (I <= J) DO
+					CREATE FIELD ClientRsRef.XferRec.XferId VALUE COALESCE(IMTRVTA1Ref.IMTRVTA1_TTRACE_NO,'');
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctId VALUE COALESCE(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_ACCT_NO,'');
+					--START OF DRP PROJECT
+					--Updated the BranchIdent value to map what we have received from Consumer 					
+					--CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent VALUE COALESCE(CAST(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_BANK_NO AS CHARACTER) || CAST(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_BRANCH_NO AS CHARACTER),'');
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent VALUE ClientRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent;					
+					--END OD DRP PROJECT
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.Country VALUE COALESCE (ClientRqRef.XferFromInfo.AcctRef.AcctRec.AcctInfo.FIData.Country,'');
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[1].BalType VALUE 'Current';
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[1].CurAmt.Amt VALUE COALESCE(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_ACCT_BAL_SIGN  || CAST(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_ACCT_BAL AS CHARACTER),0);
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[2].BalType VALUE 'Avail';
+					CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal[2].CurAmt.Amt VALUE COALESCE(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_AVAIL_BAL_SIGN || CAST(IMTRVTA1Ref.IMTRVTA1_TRAN_DETAIL[I].IMTRVTA1_AVAIL_BAL AS CHARACTER),0);
+					
+					SET I = I+1;
+				END WHILE;
+			END IF;
+			SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';			
+			RETURN;
+		END IF;
+	END IF;
+END;

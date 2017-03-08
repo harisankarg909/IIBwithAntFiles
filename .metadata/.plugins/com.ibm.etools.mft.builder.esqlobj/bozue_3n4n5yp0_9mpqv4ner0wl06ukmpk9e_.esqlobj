@@ -1,0 +1,10 @@
+CREATE FUNCTION Ret_Identifier(IN Frm_RefType CHARACTER, IN To_RefType CHARACTER, IN Frm_RefId CHARACTER, IN To_RefId CHARACTER, IN Environment REFERENCE) 
+BEGIN
+	IF (Frm_RefType = 'AccountIdentifier') AND(Frm_RefId = 'Cust') AND (To_RefType = 'AccountIdentifier') AND (To_RefId = 'Cust') THEN
+		SET Environment.Flag = '1';
+	ELSEIF (Frm_RefType = 'AccountIdentifier') AND (Frm_RefId = 'Cust') THEN
+		SET Environment.Flag = '2';
+	ELSEIF (To_RefType = 'AccountIdentifier') AND (To_RefId = 'Cust')THEN
+		SET Environment.Flag = '3';
+	END IF;
+END;

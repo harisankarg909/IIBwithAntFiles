@@ -1,0 +1,160 @@
+CREATE PROCEDURE XferAdd_MantecReq_AddPscRq(IN EnvRef REFERENCE,IN RsQueueName CHARACTER)
+BEGIN
+	---------------------------------------------------------------------------
+    -- Get a reference to the request message
+    ---------------------------------------------------------------------------
+    DECLARE XferAddRqRef REFERENCE TO EnvRef;
+    CALL CcnGetClientRqRef(EnvRef, XferAddRqRef);
+    
+    DECLARE MsgRqHdrRef REFERENCE TO XferAddRqRef.MsgRqHdr;
+    ---------------------------------------------------------------------------
+    -- Create the provider service call 
+    ---------------------------------------------------------------------------
+	DECLARE PscRef REFERENCE TO EnvRef;	
+	DECLARE PscPrimaryKey CHAR XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId;	
+	CALL CcnAddProviderServiceCall(EnvRef,PscRef,'MANTEC','XML','',PscPrimaryKey,'');
+	
+	-- Retain the value of the provider service call UUID so it can
+	-- be used to retrieve the correct provider service call reference
+	-- during response processing
+	CALL CcnSetNamedCharValue(EnvRef, 'CcnMantecUuid', CcnGetPscUUID(PscRef));
+	
+	-----------------------------------------------------------------------------
+	-- Override CCN standards derived default values 
+	-----------------------------------------------------------------------------
+	CALL CcnSetPscRqMsgType(PscRef, 'gl_request');
+    CALL CcnSetPscRqMsgFormat(PscRef, 'XML');
+	CALL CcnSetPscRsMsgType(PscRef, 'gl_reply');
+    CALL CcnSetPscRsMsgFormat(PscRef, 'XML');
+    
+    ---------------------------------------------------------------------------
+	-- Get a reference to the provider service call request and populate it
+	---------------------------------------------------------------------------
+    DECLARE PscRqRef REFERENCE TO EnvRef;
+	CALL CcnGetPscRqRef(PscRef, PscRqRef);
+	
+	---------------------------------------------------------------------------    
+	-- Set the provider service call endpoints    
+    ---------------------------------------------------------------------------    
+	DECLARE MtcRqQueueName CHARACTER 'queue://NBMANTEC.REQ.SERVER';
+	CALL CcnSetPscEndpoints(PscRef, MtcRqQueueName, RsQueueName);
+	
+	---------------------------------------------------------------------------    
+	-- Construct Request Message    
+    ---------------------------------------------------------------------------
+	SET PscRqRef.(XMLNSC.Attribute)type = 'MADE';
+	CREATE FIELD PscRqRef.system VALUE MsgRqHdrRef.SignonRq.ClientApp.Name;
+	CREATE FIELD PscRqRef.action.(XMLNSC.Attribute)type VALUE 'add';
+	CREATE FIELD PscRqRef.product.(XMLNSC.Attribute)sub VALUE 'IMT';
+	CREATE FIELD PscRqRef.product.(XMLNSC.Attribute)type VALUE 'FTR';
+	CREATE FIELD PscRqRef.product.(XMLNSC.Attribute)mode VALUE 'create';
+	CREATE FIELD PscRqRef.enteredBy VALUE 'PTM';
+	CREATE FIELD PscRqRef.reference VALUE COALESCE(XferAddRqRef.PmtRefId,'');
+	-- CMP 10.2 Defect #4409 : Fix to set paymentdetails.override_limit to true, if OverrideFunds = 1
+	IF (XferAddRqRef.OverrideFunds = 1) THEN
+		CREATE FIELD PscRqRef.paymentdetails.(XMLNSC.Attribute)override_limit VALUE 'true';
+	END IF;
+	CREATE FIELD PscRqRef.paymentdetails.(XMLNSC.Attribute)nzd_susp VALUE '20592';
+	CREATE FIELD PscRqRef.paymentdetails.valuedate VALUE SUBSTRING(XferAddRqRef.XferFromInfo.PrcDt FROM 9 FOR 2) ||' '|| --dd
+													 Return_Month(SUBSTRING(XferAddRqRef.XferFromInfo.PrcDt FROM 6 FOR 2)) ||' '|| --mm
+													 SUBSTRING(XferAddRqRef.XferFromInfo.PrcDt FROM 1 FOR 4); -- yyyy;
+
+	CREATE FIELD PscRqRef.settlementdetails;
+	DECLARE StlmtDet REFERENCE TO PscRqRef.settlementdetails;
+	-- CMP Defect #4099 : Fix to include 'DR' and 'CR' aggregate for all sort of transfers in addition to few mapping amendments
+	--**** DR Account Details Mapped
+	CREATE FIELD StlmtDet.detail[1].(XMLNSC.Attribute)type VALUE 'DR';
+	CREATE FIELD StlmtDet.detail[1].amount VALUE COALESCE(XferAddRqRef.XferFromInfo.CurAmt.Amt,0);
+	CREATE FIELD StlmtDet.detail[1].amount.(XMLNSC.Attribute)currency VALUE COALESCE(XferAddRqRef.XferFromInfo.CurAmt.CurCode.Value,'');
+	
+	--Changes made for CPR Migration Project for defect 152	
+	--RefInfo occurs as an array in the request so included a while loop
+	IF EXISTS(XferAddRqRef.XferFromInfo.RefInfo[]) THEN
+		DECLARE XferFromRefInfo REFERENCE TO XferAddRqRef.XferFromInfo.RefInfo[1];
+		
+		RefInfoDR:WHILE LASTMOVE(XferFromRefInfo) DO
+			IF((XferFromRefInfo.RefType = 'AccountIdentifier') AND (XferFromRefInfo.RefId = 'Susp')) THEN
+				CREATE FIELD StlmtDet.detail[1].account.(XMLNSC.Attribute)type VALUE 'mmsusp';
+				 LEAVE RefInfoDR; 
+			ELSE
+				CREATE FIELD StlmtDet.detail[1].account.(XMLNSC.Attribute)type VALUE 'fca';
+			END IF;
+			MOVE XferFromRefInfo NEXTSIBLING REPEAT NAME; 
+		END WHILE;
+	ELSE
+		CREATE FIELD StlmtDet.detail[1].account.(XMLNSC.Attribute)type VALUE 'fca';
+	END IF;
+			
+	--Added IF condition for NZ tactical solution (CR-777). 	
+	    IF(MsgRqHdrRef.SignonRq.ClientApp.Name='LQM') THEN 
+	        CREATE FIELD StlmtDet.detail[1].(XMLNSC.Attribute)charge VALUE XferAddRqRef.XferFromInfo.TrnCode;
+	   --Changes made for CPR Migration Project for defect 152--		
+	    ELSEIF (StlmtDet.detail[1].account.(XMLNSC.Attribute)type = 'fca') THEN
+		   CREATE FIELD StlmtDet.detail[1].(XMLNSC.Attribute)charge VALUE 'BB';
+	    END IF;
+	
+	
+	-- CMP Defect #3874 : Set 'autogeneratecontra' to 'false' in case of Customer to Customer Account
+	CREATE FIELD StlmtDet.detail[1].(XMLNSC.Attribute)autogeneratecontra VALUE 'false';
+	
+	IF (StlmtDet.detail[1].account.(XMLNSC.Attribute)type = 'fca') THEN
+		-- CMP 10.2 : Defect Fix #3266 AcctId Mapping
+		CREATE FIELD StlmtDet.detail[1].account.(XMLNSC.Attribute)no VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctRec.AcctId,0);--COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctId,0);
+		CREATE FIELD StlmtDet.detail[1].account.(XMLNSC.Attribute)currency VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctCurCode,'');
+	END IF;	
+	IF (StlmtDet.detail[1].account.(XMLNSC.Attribute)type = 'mmsusp') THEN
+		CREATE FIELD StlmtDet.detail[1].account.(XMLNSC.Attribute)ccy VALUE COALESCE(XferAddRqRef.XferFromInfo.AcctRef.AcctCurCode,'');
+	END IF;	
+	CREATE FIELD StlmtDet.detail[1].bank_ref VALUE COALESCE(XferAddRqRef.XferFromInfo.Memo[1],'');
+	CREATE FIELD StlmtDet.detail[1].narrative VALUE COALESCE(XferAddRqRef.XferFromInfo.Memo[2],'');
+	
+	--**** CR Account Details Mapped
+	CREATE FIELD StlmtDet.detail[2].(XMLNSC.Attribute)type VALUE 'CR';
+	CREATE FIELD StlmtDet.detail[2].amount VALUE COALESCE(XferAddRqRef.XferToInfo.CurAmt.Amt,0);
+	CREATE FIELD StlmtDet.detail[2].amount.(XMLNSC.Attribute)currency VALUE COALESCE(XferAddRqRef.XferToInfo.CurAmt.CurCode.Value,'');
+	
+	--Changes made for CPR Migration Project for defect 152
+	--RefInfo occurs as an array in the request so included a while loop
+	IF EXISTS(XferAddRqRef.XferToInfo.RefInfo[]) THEN
+		DECLARE XferToRefInfo REFERENCE TO XferAddRqRef.XferToInfo.RefInfo[1];
+		
+		RefInfoCR:WHILE LASTMOVE(XferToRefInfo) DO
+			IF((XferToRefInfo.RefType = 'AccountIdentifier') AND (XferToRefInfo.RefId = 'Susp')) THEN
+				CREATE FIELD StlmtDet.detail[2].account.(XMLNSC.Attribute)type VALUE 'mmsusp';
+				LEAVE RefInfoCR;
+			ELSE
+				CREATE FIELD StlmtDet.detail[2].account.(XMLNSC.Attribute)type VALUE 'fca';
+			END IF;
+			MOVE XferToRefInfo NEXTSIBLING REPEAT NAME; 
+		END WHILE;
+	ELSE
+		CREATE FIELD StlmtDet.detail[2].account.(XMLNSC.Attribute)type VALUE 'fca';
+	END IF;
+	
+    --Added IF condition to check for ClientAppName as  LQM for NZ tactical solution (CR-777).
+	 --Changes made for CPR Migration Project for defect 152
+	 	
+	   IF(MsgRqHdrRef.SignonRq.ClientApp.Name='LQM') THEN
+	      CREATE FIELD StlmtDet.detail[2].(XMLNSC.Attribute)charge VALUE XferAddRqRef.XferToInfo.TrnCode;
+	       --Changes made for CPR Migration Project for defect 152--
+	   ELSEIF(StlmtDet.detail[2].account.(XMLNSC.Attribute)type = 'fca') THEN	
+		  CREATE FIELD StlmtDet.detail[2].(XMLNSC.Attribute)charge VALUE 'BB'; 	     
+	   END IF;
+ 	  		
+	
+	-- CMP Defect #3874 : Set 'autogeneratecontra' to 'false' in case of Customer to Customer Account
+	CREATE FIELD StlmtDet.detail[2].(XMLNSC.Attribute)autogeneratecontra VALUE 'false';
+	IF (StlmtDet.detail[2].account.(XMLNSC.Attribute)type = 'fca') THEN
+		-- CMP 10.2 : Defect Fix #3266 AcctId Mapping
+		CREATE FIELD StlmtDet.detail[2].account.(XMLNSC.Attribute)no VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctRec.AcctId,0);--COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctId,0);
+		CREATE FIELD StlmtDet.detail[2].account.(XMLNSC.Attribute)currency VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctCurCode,'');
+	END IF;
+	IF (StlmtDet.detail[2].account.(XMLNSC.Attribute)type = 'mmsusp') THEN
+		CREATE FIELD StlmtDet.detail[2].account.(XMLNSC.Attribute)ccy VALUE COALESCE(XferAddRqRef.XferToInfo.AcctRef.AcctCurCode,'');
+	END IF;	
+	CREATE FIELD StlmtDet.detail[2].bank_ref VALUE COALESCE(XferAddRqRef.XferToInfo.Memo[1],'');
+	CREATE FIELD StlmtDet.detail[2].narrative VALUE COALESCE(XferAddRqRef.XferToInfo.Memo[2],'');
+	
+	--Set the ProcessingStage to MANTEC
+	CALL CcnSetNamedCharValue(EnvRef, 'ProcessingStage', 'MANTEC');	
+END;

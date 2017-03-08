@@ -1,0 +1,57 @@
+CREATE PROCEDURE XferAdd_CacheRsp_PrcPscRs(IN Environment REFERENCE, IN LocalEnvironment REFERENCE)
+BEGIN
+	
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- Create the response message
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+	---------------------------------------------------------------------------
+	DECLARE ClientRqRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, ClientRqRef);	
+	DECLARE Rq REFERENCE TO ClientRqRef;
+	
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRsRef(Environment, ClientRsRef);
+	DECLARE Rs REFERENCE TO ClientRsRef;
+	
+	--------------------------------------------------------------------------
+	-- Get a ref to provider response
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetPscRsRefFirst(Environment, PscRsRef);
+	
+		---------------------------------------------------------------------------
+    -- Get a reference to the FINET response
+    ---------------------------------------------------------------------------
+   	CALL CcnGetPscRsRefByPscUUID(Environment,PscRsRef,CcnGetNamedCharValue(Environment,'CcnCacheUuid'));
+   	
+   		-- Check for provider service call errors like timeouts or parser exceptions
+	IF(CcnGetPscRsStatusCode(PscRsRef) <> '0') THEN
+		CALL CcnSetClientRsStatusFromPscRsStatus(Environment, PscRsRef);
+		CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+		SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';
+		RETURN;
+	END IF;
+	
+	--------------------------------------------------------------
+	-- Construct Response Message
+	--------------------------------------------------------------
+	
+	 --- Build the status block.
+		CALL CcnSetClientRsStatusFromProvider(Environment, 'CACHE',TRIM(LEADING '0' FROM CAST(PscRsRef.StatusCode AS CHARACTER)),'','' );
+	    DECLARE StatusRef REFERENCE TO ClientRsRef.Status;
+	    SET StatusRef.ServerStatusCode 	= NULL;
+	    SET StatusRef.StatusDesc 		= PscRsRef.StatusDescription;
+		
+	CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+	CREATE FIELD ClientRsRef.XferRec.XferId VALUE PscRsRef.LMReferenceID;
+	CREATE FIELD ClientRsRef.XferRec.XferInfo.AcctRef.AcctRec.AcctId VALUE PscRsRef.AcctNumber;
+
+	
+	SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';
+	
+END;

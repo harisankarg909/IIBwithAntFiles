@@ -1,0 +1,123 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN
+		
+
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+	---------------------------------------------------------------------------
+
+
+    DECLARE ClientRqRef REFERENCE TO Environment.Context.RqContextMsg;
+	DECLARE Rq REFERENCE TO ClientRqRef;
+	
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	SET Environment.Client.MsgDomain = 'XML';
+	CALL CcnAddClientRs(Environment, ClientRsRef);	
+	DECLARE Rs REFERENCE TO ClientRsRef;
+	
+	--------------------------------------------------------------------------
+	-- Get a ref to provider response
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, PscRsRef);	
+	
+
+	IF (FIELDNAME(PscRsRef) = 'XferAddMdzRs') THEN
+		
+		DECLARE PscRef REFERENCE TO Environment;	
+	
+		CALL CcnAddProviderServiceCall(Environment,PscRef,'PTM','XML','XferAddRs','','');
+		-----------------------------------------------------------------------------
+		-- Override CCN standards derived default values 
+		-----------------------------------------------------------------------------
+		CALL CcnSetPscRqMsgType(PscRef, 'XferAddRs');
+	    CALL CcnSetPscRqMsgFormat(PscRef, 'XML');
+	    CALL CcnSetPscRsMsgType(PscRef, 'XferAddRs');
+	    CALL CcnSetPscRsMsgFormat(PscRef, 'XML');
+	    	---------------------------------------------------------------------------
+		-- Get a reference to the provider service call request and populate it
+		---------------------------------------------------------------------------
+	    DECLARE PscClientRef REFERENCE TO Environment;
+		CALL CcnGetPscRqRef(PscRef, PscClientRef);		
+		-- Set the ClientApp name and Client App env for test Endpoint mapping 
+		SET Environment.ContextInfo.Message.MsgContext.ClientAppName = 'MIDANZ';
+	
+		-- Determine if clientQualifier is exists in MIDANZ reponse message. 
+		-- Format of clientQlauifier field will be "NetworkTrnInfo.Name:Client Evn name" where ':' is the delimiter
+		
+		DECLARE ClientQualifier CHARACTER '';
+		DECLARE Pos INTEGER 0;
+		SET Pos = POSITION(':' IN PscRsRef.ClientQualifier);
+		
+		IF Pos > 0 THEN
+	    	SET ClientQualifier = SUBSTRING(PscRsRef.ClientQualifier FROM (Pos+1) FOR (LENGTH(PscRsRef.ClientQualifier)-Pos));
+			SET Environment.ContextInfo.Message.MsgContext.ClientQualifier = COALESCE(ClientQualifier, '');
+		END IF;	
+			
+		-- Retrieve the PTM response queue from CcnSetEndpoint table
+		DECLARE PTM_RQueueName CHARACTER ' ';
+		
+		
+		--SET PTM_RQueueName = 'queue://PCPR.FUNDS.TRANSFER.ADD.RSP.01';
+	     SET PTM_RQueueName =  CcnGetServiceEndpointOptionalId(Environment,'MIDANZ','','PTM');
+	    CALL CcnSetPscEndpoints(PscRef, PTM_RQueueName, '');
+	    
+	    -----------------------------------------------------------------------------
+		-- Override REQUEST RESPONSE behavior to DATAGRAM
+		-----------------------------------------------------------------------------
+		CALL CcnSetPscMep(PscRef, 'ONE_WAY');	
+		
+		/* Make the output message persistant */
+		CALL CcnSetPscRqPersistent(PscRef);	
+		
+		IF (PscRsRef.Status.StatusCode <> 0) THEN
+			------------------------------------------------
+			--	Process Status Block
+			------------------------------------------------			
+			CREATE FIRSTCHILD OF PscClientRef NAME 'Status';
+		  	DECLARE StatusRef REFERENCE TO PscClientRef.Status;
+		  	
+		  	CREATE FIELD StatusRef.StatusCode VALUE PscRsRef.Status.StatusCode;
+		  	CREATE FIELD StatusRef.ServerStatusCode VALUE 'MIDANZ';
+		  	CREATE FIELD StatusRef.Severity VALUE PscRsRef.Status.Severity;
+		  	CREATE FIELD StatusRef.StatusDesc VALUE PscRsRef.Status.StatusDesc;
+		  	
+		  	CREATE FIELD PscClientRef.RqUID VALUE PscRsRef.RqUID;
+		  	
+		  	
+		ELSE
+			
+			--------------------------------------------------------------
+			-- Construct Response Message
+			--------------------------------------------------------------
+			CREATE FIELD PscClientRef.RqUID VALUE PscRsRef.RqUID;
+			CREATE FIELD PscClientRef.XferRec.XferId VALUE COALESCE(PscRsRef.XferInfo.BaseEnvr.CreateRefId,'');
+			CREATE FIELD PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctId VALUE COALESCE(PscRsRef.XferInfo.AcctRefFrom.AcctRec.AcctId,'');
+			CREATE FIELD PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.BranchIdent VALUE COALESCE(PscRsRef.XferInfo.AcctRefFrom.BranchIdent,'');
+			CREATE FIELD PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.FIData.Country VALUE COALESCE(PscRsRef.XferInfo.AcctRefFrom.AcctRec.AcctInfo.FIIdent.Country,'');			
+			CREATE FIELD PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.BalType VALUE 'Avail';			
+			CREATE FIELD PscClientRef.XferRec.XferInfo.AcctRef.AcctRec.AcctInfo.AcctBal.CurAmt.Amt VALUE COALESCE(PscRsRef.XferInfo.CurAmt.Amt,0);
+			
+			
+		END IF;			
+	END IF;
+		
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;

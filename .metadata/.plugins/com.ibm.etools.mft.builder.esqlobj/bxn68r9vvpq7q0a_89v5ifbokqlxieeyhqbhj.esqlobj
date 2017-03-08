@@ -1,0 +1,21 @@
+/*EATE FUNCTION Main() RETURNS BOOLE*/
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		DECLARE Rfh2Ref REFERENCE TO Environment.ContextInfo.Message.MQRFH2C;
+		SET Environment.ContextInfo.Message.ReplyTo = 'queue://' || TRIM(Rfh2Ref.usr.ConsumerReplyToQMgr) || '/' || TRIM(Rfh2Ref.usr.ConsumerReplyToQueue);
+		
+		-- Pass the Client message id in correlationid field with report
+		SET Environment.ContextInfo.Message.MQ.CorrelId = CAST(Rfh2Ref.usr.ConsumerOrigMsgId AS BLOB);
+		SET Environment.ContextInfo.Message.MQ.Report = MQRO_PASS_CORREL_ID;
+		
+			-- Now we have both response message and context, create the reply message
+		CALL XferAdd_FinetRsp_PrcPscRs(Environment, OutputLocalEnvironment);
+		
+		---- SET the RFH2 header retain to false we dont want to send the RFH2 to client
+		--  here InputRoot we are passing as required it in parameter list
+		CALL CcnSetRetainRFH2Header(Environment, InputRoot, FALSE);
+		
+		RETURN TRUE;
+	END;
+

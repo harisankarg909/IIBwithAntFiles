@@ -1,0 +1,74 @@
+CREATE DATABASE MODULE XferAdd10_CcnClientRsIn_FINET
+	DECLARE C_SERVICENAME CONSTANT CHAR 'XferAdd';
+	DECLARE C_SERVICEVER  CONSTANT CHAR '10.01';
+	DECLARE C_FLOWNAME    CONSTANT CHAR 'XferAdd';
+	DECLARE C_FLOWVER     CONSTANT CHAR '10.08';
+    DECLARE C_MSGTYPERS   CONSTANT CHAR 'XferAddRs';
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+		-- General Processing - GP
+		--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+		-----------------------------------------------------------------------
+		-- Populate the environment tree 
+		-----------------------------------------------------------------------
+	CALL CcnFlowInit(Environment,Root, C_SERVICENAME, C_SERVICEVER, C_FLOWNAME, C_FLOWVER, '01');
+
+		-----------------------------------------------------------------------
+	-- Add details about the code the message flow uses 
+	-----------------------------------------------------------------------
+	IF(CcnFlowInit_AreComponentsDefined() = FALSE) THEN
+	    CcnCOMPONENTS_INIT: BEGIN ATOMIC
+            IF(CcnFlowInit_AreComponentsDefined() = FALSE) THEN
+                CALL XferAdd_FlowInit_AddComponentDetails();
+               	CALL XferAdd_XferAddFinetRqRs_FlowInit_AddComponentDetails();
+                CALL CcnFlowInit_AddComponents_MepOutIn();
+                CALL CcnFlowInit_AddComponents_Finalise();              
+            END IF;
+	    END CcnCOMPONENTS_INIT;
+    END IF;
+    
+    -----------------------------------------------------------------------
+    -- Process the client applications request message
+    -----------------------------------------------------------------------
+    CALL CcnFlowInit_SetClientMsgSetDetails(Environment, 'LCGAP98002001', 'XferAddFinetGeneric_Rs', C_MSGTYPERS, 'XML', 'CWF', '');
+    --CALL CcnFlowInit_SetClientMsgSetDetails(Environment, '', C_MSGTYPERQ, C_MSGTYPERS, '', '', '');
+    
+    CALL CcnSetRetainRFH2Header(Environment, Root, TRUE);
+    CALL CcnFlowInit_ParseClientRq(Environment, Root, FALSE, FALSE);
+    
+    -----------------------------------------------------------------------
+    -- Message flow admin requests don't contain any business service data 
+    -- so if we have received an admin request log it and resume processing
+    -- at the next node on the normal path
+    -----------------------------------------------------------------------
+    
+    IF(CcnIsAdminRqMsg(Environment) = TRUE) THEN
+        -- Finalise the message flow initialisation
+        CALL CcnFlowInit_RqIn_Finalise(Environment, Root);
+
+        -- Do not propagate as admin request processing is complete and
+        -- there is nothing more to be done
+        RETURN FALSE;
+    END IF;    
+    
+    -- Message related context information
+    DECLARE Rfh2Ref REFERENCE TO Environment.ContextInfo.Message.MQRFH2C;
+    DECLARE UniqueId CHAR Rfh2Ref.usr.XferId;
+    DECLARE ClientRefId CHAR COALESCE(TRIM(Rfh2Ref.usr.XferId),'');
+    DECLARE ClientUserId CHAR 'FINET'; --CcnGetClientUserId(MsgRqHdrRef);
+    CALL CcnFlowInit_MessageIdsAndKeys(Environment, UniqueId, ClientRefId, ClientRefId, ClientUserId);
+	
+	-- Client related context information
+	DECLARE ClientHdrRow ROW;
+   	SET ClientHdrRow.ClientAppName = 'FINET';
+    SET ClientHdrRow.ClientAppVersion = '1.0';
+   	SET ClientHdrRow.ClientOrg = '';  
+    	  
+    -- Client related context information
+    CALL CcnFlowInit_MessageContext(Environment, ClientHdrRow, '', Root);  
+    CALL CcnFlowInit_RqIn_Finalise(Environment, Root);
+    
+		RETURN TRUE;
+	END;
+END MODULE;

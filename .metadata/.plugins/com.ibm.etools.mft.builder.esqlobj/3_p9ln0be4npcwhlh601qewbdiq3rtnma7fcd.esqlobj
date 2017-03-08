@@ -1,0 +1,8 @@
+CREATE DATABASE MODULE XferAdd_MantecReq
+    DECLARE UDP_RsQueueName EXTERNAL CHAR;
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN	
+		CALL XferAdd_MantecReq_AddPscRq(Environment,UDP_RsQueueName);
+	    RETURN TRUE;
+	END;
+END MODULE;

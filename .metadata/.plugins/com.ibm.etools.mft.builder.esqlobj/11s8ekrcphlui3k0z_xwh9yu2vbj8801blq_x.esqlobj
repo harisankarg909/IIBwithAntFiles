@@ -1,0 +1,60 @@
+CREATE PROCEDURE XferAdd_MantecRsp_PrcPscRs(IN Environment REFERENCE, IN LocalEnvironment REFERENCE)
+BEGIN
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	-- Create the response message
+	--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	---------------------------------------------------------------------------
+    -- Get a reference to the client request message
+	---------------------------------------------------------------------------
+	DECLARE ClientRqRef REFERENCE TO Environment;
+	CALL CcnGetClientRqRef(Environment, ClientRqRef);	
+	DECLARE Rq REFERENCE TO ClientRqRef;
+	---------------------------------------------------------------------------
+    -- Get the client response message
+	---------------------------------------------------------------------------	
+	DECLARE ClientRsRef REFERENCE TO Environment;
+	CALL CcnGetClientRsRef(Environment, ClientRsRef);
+	DECLARE Rs REFERENCE TO ClientRsRef;	
+	--------------------------------------------------------------------------
+	-- Get a ref to provider response
+	---------------------------------------------------------------------------
+	DECLARE PscRsRef REFERENCE TO Environment;
+	CALL CcnGetPscRsRefFirst(Environment, PscRsRef);	
+	---------------------------------------------------------------------------
+    -- Get a reference to the MANTEC response
+    ---------------------------------------------------------------------------
+   	CALL CcnGetPscRsRefByPscUUID(Environment,PscRsRef,CcnGetNamedCharValue(Environment,'CcnMantecUuid'));
+   	
+   	-- Check for provider service call errors like timeouts or parser exceptions
+	IF(CcnGetPscRsStatusCode(PscRsRef) <> '0') THEN
+		CALL CcnSetClientRsStatusFromPscRsStatus(Environment, PscRsRef);
+		SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';
+		CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+		RETURN;
+	END IF;	
+
+	IF (FIELDNAME(PscRsRef) = 'gl_reply') THEN
+
+		-- CMP Defect #3876 : Included the Procedure call 'CcnSetClientRsStatusFromProvider' to handle Mantec error ids 25, 45, 46, 47 & 48
+		-- CMP Defect #4011 : Included check for Mantec error id 54
+		IF (UCASE(PscRsRef.error.passed) = 'FALSE') AND ((PscRsRef.error.msgid) IN (25, 45, 46, 47, 48, 54)) THEN
+			CALL CcnSetClientRsStatusFromProvider(Environment, 'MANTEC', CAST(PscRsRef.error.msgid AS CHAR), '', PscRsRef.error);
+		ELSEIF(UCASE(PscRsRef.error.passed) = 'FALSE') THEN
+			CREATE FIELD ClientRsRef.Status.StatusCode VALUE '100';
+			CREATE FIELD ClientRsRef.Status.ServerStatusCode VALUE 'Mantec';
+			CREATE FIELD ClientRsRef.Status.Severity VALUE 'Error';
+			CREATE FIELD ClientRsRef.Status.StatusDesc VALUE PscRsRef.error; 			
+		END IF;
+		
+		IF (PscRsRef.error_entry IS NOT NULL) THEN
+			CREATE FIELD ClientRsRef.Status.AdditionalStatus.StatusCode VALUE ClientRsRef.Status.StatusCode;
+			CREATE FIELD ClientRsRef.Status.AdditionalStatus.Severity VALUE 'Error';
+			CREATE FIELD ClientRsRef.Status.AdditionalStatus.StatusDesc VALUE SUBSTRING((PscRsRef.error_entry || PscRsRef.additional_error_message) FROM 1 FOR 255);
+		END IF;
+		
+		CREATE FIELD ClientRsRef.RqUID VALUE ClientRqRef.RqUID;
+		
+		SET LocalEnvironment.Destination.RouterList.DestinationData[<].labelname = 'CIMReply';			
+		RETURN;	
+	END IF;		
+END;
